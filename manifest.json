@@ -1,5 +1,5 @@
 {
-  "Version": "1.3.20",
+  "Version": "1.3.25",
   "Tools": {
     "FullBus": {
       "Path": "src/Full/FullBus/init.lua",
@@ -34,6 +34,14 @@
     "LitePool": {
       "Path": "src/Lite/LitePool/init.lua",
       "Deps": ["KelSignal", "Debugger", "Mutex"],
+      "Internals": ["TypeDef"]
+    },
+    "LiteTask": {
+      "Path": "src/Lite/LiteTask/init.lua",
+      "Internals": ["TypeDef"]
+    },"LiteState": {
+      "Path": "src/Lite/LiteState/init.lua",
+      "Deps": ["KelSignal", "Debugger"],
       "Internals": ["TypeDef"]
     }
   },
