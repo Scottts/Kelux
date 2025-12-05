@@ -151,7 +151,7 @@ export type LiteCache<T> = {
 	)
 }
 export type Static = {
-	Static: typeof(
+	Create: typeof(
 		--[[
 			Creates a new named cache or returns an existing one if already created.
 			Supports optional max

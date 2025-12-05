@@ -35,7 +35,7 @@ export type LitePool<T> = {
 	),
 }
 export type Static = {
-	Static: <T>(poolName: string, config: PoolConfig?) -> LitePool<T>
+	Create: <T>(poolName: string, config: PoolConfig?) -> LitePool<T>
 }
 ------------------------------------------------------------------------------------------------------------
 export type Master = {
