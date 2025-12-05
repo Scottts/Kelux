@@ -1,0 +1,77 @@
+{
+  "Version": "1.3.11",
+  "Tools": {
+    "FullBus": {
+      "Path": "src/Full/FullBus/init.lua",
+      "Deps": ["KelSignal", "Debugger", "Mutex", "Algorithms/BplusTree", "Algorithms/RadixTree", "Algorithms/HyperLogLog", "Algorithms/IntervalTree", "Algorithms/LazyPropagation", "Algorithms/TBA", "Algorithms/SplayTree", "Algorithms/MerkleTree", "Algorithms/BloomFilter", "Algorithms/xxHash", "Algorithms/LZ4"],
+      "Internals": ["TypeDef", "Document"]
+    },
+    "FullCache": {
+      "Path": "src/Full/FullCache/init.lua",
+      "Deps": ["KelSignal", "Debugger", "TTLService", "Mutex", "Algorithms/Trie", "Algorithms/AhoCorasick", "Algorithms/LZ4", "Algorithms/Zstd", "Algorithms/xxHash", "Formats/kelPacker", "Policies/FIFO", "Policies/LRU", "Policies/LFU", "Policies/RR", "Policies/ARC", "Algorithms/BloomFilter", "Algorithms/CuckooFilter"],
+      "Internals": ["TypeDef", "Document"]
+    },
+    "FullPool": {
+      "Path": "src/Full/FullPool/init.lua",
+      "Deps": ["KelSignal", "Debugger", "Mutex", "Algorithms/PairingHeap", "Algorithms/Trie", "Algorithms/TBA"],
+      "Internals": ["TypeDef", "Document", "Properties", "Serializer"]
+    },
+    "FullState": {
+      "Path": "src/Full/FullState/init.lua",
+      "Deps": ["KelSignal", "Debugger", "Mutex", "Algorithms/LZ4", "Algorithms/xxHash", "Algorithms/MerkleTree", "Algorithms/RadixTree", "Algorithms/BplusTree", "Algorithms/DedupeLog", "Algorithms/Base64"],
+      "Internals": ["TypeDef", "Document"]
+    },
+    "FullTask": {
+      "Path": "src/Full/FullTask/init.lua",
+      "Deps": ["KelSignal", "Debugger", "TTLService", "CronParser", "Mutex", "Algorithms/TopologicalSort", "Algorithms/FibonacciHeap", "Algorithms/PairingHeap", "Algorithms/Semaphore", "Algorithms/Trie", "Algorithms/CHF", "Algorithms/TBA", "Algorithms/BloomFilter", "Algorithms/CuckooFilter"],
+      "Internals": ["TypeDef", "Document"]
+    },
+    "LiteCache": {
+      "Path": "src/Lite/LiteCache/init.lua",
+      "Deps": ["KelSignal", "Debugger", "TTLService", "Mutex", "Algorithms/BloomFilter", "Algorithms/CuckooFilter"],
+      "Internals": ["TypeDef", "Document"]
+    },
+    "LitePool": {
+      "Path": "src/Lite/LitePool/init.lua",
+      "Deps": ["KelSignal", "Debugger", "Mutex"],
+      "Internals": ["TypeDef"]
+    }
+  },
+  "Components": {
+    "KelSignal": "src/Components/KelSignal/init.lua",
+    "KelSignal/TypeDef": "src/Components/KelSignal/TypeDef.lua",
+    "Debugger": "src/Components/Debugger.lua",
+    "Mutex": "src/Components/Mutex.lua",
+    "TTLService": "src/Components/TTLService.lua",
+    "CronParser": "src/Components/CronParser.lua",
+    "Algorithms/BplusTree": "src/Components/Algorithms/BplusTree.lua",
+    "Algorithms/RadixTree": "src/Components/Algorithms/RadixTree.lua",
+    "Algorithms/HyperLogLog": "src/Components/Algorithms/HyperLogLog.lua",
+    "Algorithms/IntervalTree": "src/Components/Algorithms/IntervalTree.lua",
+    "Algorithms/LazyPropagation": "src/Components/Algorithms/LazyPropagation.lua",
+    "Algorithms/TBA": "src/Components/Algorithms/TBA.lua",
+    "Algorithms/SplayTree": "src/Components/Algorithms/SplayTree.lua",
+    "Algorithms/MerkleTree": "src/Components/Algorithms/MerkleTree.lua",
+    "Algorithms/BloomFilter": "src/Components/Algorithms/BloomFilter.lua",
+    "Algorithms/CuckooFilter": "src/Components/Algorithms/CuckooFilter.lua",
+    "Algorithms/xxHash": "src/Components/Algorithms/xxHash.lua",
+    "Algorithms/LZ4": "src/Components/Algorithms/LZ4.lua",
+    "Algorithms/Trie": "src/Components/Algorithms/Trie.lua",
+    "Algorithms/AhoCorasick": "src/Components/Algorithms/AhoCorasick.lua",
+    "Algorithms/Zstd": "src/Components/Algorithms/Zstd.lua",
+    "Algorithms/PairingHeap": "src/Components/Algorithms/PairingHeap.lua",
+    "Algorithms/TopologicalSort": "src/Components/Algorithms/TopologicalSort.lua",
+    "Algorithms/FibonacciHeap": "src/Components/Algorithms/FibonacciHeap.lua",
+    "Algorithms/Semaphore": "src/Components/Algorithms/Semaphore.lua",
+    "Algorithms/CHF": "src/Components/Algorithms/CHF.lua",
+    "Algorithms/DedupeLog": "src/Components/Algorithms/DedupeLog.lua",
+    "Algorithms/Base64": "src/Components/Algorithms/Base64.lua",
+    "Formats/kelPacker": "src/Components/Formats/kelPacker.lua",
+    "Policies/FIFO": "src/Components/Policies/FIFO.lua",
+    "Policies/LRU": "src/Components/Policies/LRU.lua",
+    "Policies/RR": "src/Components/Policies/RR.lua",
+    "Policies/ARC": "src/Components/Policies/ARC.lua",
+    "Policies/LFU": "src/Components/Policies/LFU/init.lua",
+    "Policies/LFU/CMS": "src/Components/Policies/LFU/CMS.lua"
+  }
+}
