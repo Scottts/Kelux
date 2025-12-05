@@ -1,3 +1,5 @@
+-- THE DOCUMENT IS INACCURATE, DON'T RELY
+
 --[[
 	LiteCache Documentation
 	Version: 0.3.04 (STABLE)

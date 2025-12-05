@@ -9,157 +9,120 @@ export type CacheEntry<T> = {
 	expires: number?,
 }
 export type EvictionInfo<T> = {
-	kind: "array" | "dict",
+	kind: "dict",
 	key: string?,
 	value: T,
 	expired: boolean,
 }
-export type MemoryChangeInfo = {
-	used: number,
-	budget: number,
-	percentUsed: number,
-}
 export type SnapshotData<T> = {
-	array: {T},
 	dict: {[string]: CacheEntry<T>},
 	maxobj: number,
 	policyName: string,
 	policyState: PolicyState,
-	memoryBudget: number,
-	memoryUsage: number,
-	arrayMemoryUsage: number,
-	dictMemoryUsage: number,
-	maxEntrySizeBytes: number?,
-	formatType: string?,
 	timestamp: number,
 }
 export type LiteCache<T> = {
-	InsertSingle: typeof(
-		--[[
-			Inserts a single object into the array section of the cache.
-			<code>cache:InsertSingle("Pen")
-		]]
-		function(self: LiteCache<T>, item: T): T end
-	),
-	InsertBatch: typeof(
-		--[[
-			Inserts multiple values into the array section of the cache.
-			<code>cache:InsertBatch({ "Pen", "Pineapple", "Apple", "Pen" })
-		]]
-		function(self: LiteCache<T>, items: {T}): {T} end
-	),
+	Name: string,
 	Set: typeof(
 		--[[
-			Set a value under "key", without TTL.
-			Later "Get(key)" will return the raw "value".
+			Set a value under "key". Optional TTL can be provided.
 			<code>cache:Set("key", "value")
+			cache:Set("key", "value", 60) -- Expires in 60s
 		]]
-		function(self: LiteCache<T>, key: string|{any}, value: T): T end
+		function(self: LiteCache<T>, key: string|{any}, value: T, ttl: number?): () end
 	),
 	Get: typeof(
 		--[[
 			Returns the value for a key, if it exists and hasn’t expired.
-			Automatically removes expired TTL entries.
+			Automatically removes expired TTL entries on access.
 			
-			<code>local username = cache:Get("username_123")
+			<code>local val = cache:Get("key")
 		]]
 		function(self: LiteCache<T>, key: string|{any}): T? end
+	),
+	GetOrSet: typeof(
+		--[[
+			Atomic operation. Tries to Get a key. If missing/expired, it runs the callback,
+			stores the result, and returns it.
+			
+			<code>
+			local val = cache:GetOrSet("key", function()
+				return Instance.new("Part") -- Only runs if "key" is missing
+			end, 60)
+			</code>
+		]]
+		function(self: LiteCache<T>, key: string|{any}, callback: () -> T, ttl: number?): T end
+	),
+	SetWithTTL: typeof(
+		--[[
+			Explicit method to set a value with a lifespan. 
+			Alias for Set(k, v, ttl).
+		]]
+		function(self: LiteCache<T>, key: string|{any}, value: T, ttl: number): T end
 	),
 	Has: typeof(
 		--[[
 			Checks whether a key exists and hasn’t expired.
-			Cleans up expired TTL values in the process.
-			
-			<code>if cache:Has("username_123") then
-				print("Key is still valid!")
-			end
 		]]
 		function(self: LiteCache<T>, key: string|{any}): boolean end
 	),
 	Remove: typeof(
 		--[[
-			Deletes a key-value pair from the dictionary section, <em>regardless of its state.</em>
-			<code>cache:Remove("username_123")
+			Deletes a key-value pair from the cache.
 		]]
 		function(self: LiteCache<T>, key: string|{any}): () end
 	),
 	Clear: typeof(
 		--[[
-			Completely resets the cache’s internal storage.
-			Also resets the eviction policy to default state.
-			
-			<code>cache:Clear()
+			Completely resets the cache’s internal storage and policy.
 		]]
 		function(self: LiteCache<T>): () end
 	),
-	Cleanup: typeof(
+	Pause: typeof(
 		--[[
-			Removes all nil entries in the array section.
-			This is a maintenance function mostly for the FIFO array.
-			
-			<code>cache:Cleanup()
+			Pauses the TTL background loop. 
+		]]
+		function(self: LiteCache<T>): () end
+	),
+	Resume: typeof(
+		--[[
+			Resumes the TTL background loop.
 		]]
 		function(self: LiteCache<T>): () end
 	),
 	Peek: typeof(
 		--[[
-			Return a dict-entry value without bumping 
-			its LRU/LFU state or affecting TTL.
-			<code>local value = cache:Peek("key")
-			if value then
-				print(value)
-			end
+			Return a value without bumping its LRU/LFU state or affecting TTL.
 		]]
 		function(self: LiteCache<T>, key: string|{any}): T? end
 	),
 	Keys: typeof(
 		--[[
-			Return a list of all keys currently in the dict.
-			<strong>(Excludes expired)</strong>
-			
-			<code>local keys = cache:Keys()
-			for _, key in ipairs(keys) do
-				print(key)
-			end
+			Return a list of all valid keys.
 		]]
 		function(self: LiteCache<T>): {string|{any}} end
 	),
 	Values: typeof(
 		--[[
-			Return a list of all values in array + dict
-			<strong>(Excludes expired)</strong>
-			
-			<code>local values = cache:Values()
+			Return a list of all valid values.
 		]]
 		function(self: LiteCache<T>): {T} end
-	),
-	SetWithTTL: typeof(
-		--[[
-			Stores a key-value pair that expires in "ttl" seconds.
-			Useful for temporary data like sessions or cooldowns.
-			
-			<code>cache:SetWithTTL("session_abc", "SessionData", 30)
-		]]
-		function(self: LiteCache<T>, key: string|{any}, value: T, ttl: number): T end
 	),
 	TTLRemaining: typeof(
 		--[[
 			Return seconds until expiration, or nil if none.
-			<code>local remaining = cache:TTLRemaining("key")
 		]]
 		function(self: LiteCache<T>, key: string|{any}): number? end
-	)
+	),
+	Destroy: typeof(
+		--[[
+			Destroys the cache and cleans up memory.
+		]]
+		function(self: LiteCache<T>): () end
+	),
 }
 export type Static = {
-	Create: typeof(
-		--[[
-			Creates a new named cache or returns an existing one if already created.
-			Supports optional max
-			object count, TTL interval in seconds, and cache options (weak/strong mode and eviction policy).
-			<code>local cache = LiteCache.Create("MyCache", 100, 5, { Mode = "strong", Policy = "LRU" })
-		]]
-		function(self: LiteCache<T>, CacheName: string, MaxObjects: number?, Opts: {Mode: string, Policy: string, MemoryBudget: number, MaxSerializedSize: number}?): LiteCache<T> end
-	),
+	Create: <T>(CacheName: string, MaxObjects: number?, Opts: {Mode: string?, Policy: string?}?) -> LiteCache<T>
 }
 ------------------------------------------------------------------------------------------------------------
 export type Master = {
@@ -168,11 +131,10 @@ export type Master = {
 	LFUState: LFUState,
 	RRState: RRState,
 	PolicyState: PolicyState,
-	CacheEntry: CacheEntry,
-	EvictionInfo: EvictionInfo,
-	MemoryChangeInfo: MemoryChangeInfo,
-	SnapshotData: SnapshotData,
-	LiteCache: LiteCache,
+	CacheEntry: CacheEntry<any>,
+	EvictionInfo: EvictionInfo<any>,
+	SnapshotData: SnapshotData<any>,
+	LiteCache: LiteCache<any>,
 	Static: Static,
 }
 local TypeDef = {}

@@ -16,6 +16,15 @@ export type LitePool<T> = {
 		]]
 		function(self: LitePool<T>): Instance end
 	),
+	GetWithLease: typeof(
+		--[[
+			Retrieves an instance and automatically returns it to the pool after `ttl` seconds.
+			Useful for temporary effects, projectiles, or debris.
+			
+			<code>local part = myPool:GetWithLease(5) -- Returns automatically after 5s
+		]]
+		function(self: LitePool<T>, ttl: number): Instance end
+	),
 	Return: typeof(
 		--[[
 			Returns an instance to the pool, making it available for reuse.

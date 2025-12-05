@@ -11,6 +11,7 @@
 local VERSION = "0.0.1 (BETA)"
 -- Dependencies
 local TypeDef = require(script.TypeDef)
+local Mutex = require(script.Parent.Parent.Components.Mutex)
 local Signal = require(script.Parent.Parent.Components.KelSignal) 
 local Debugger = require(script.Parent.Parent.Components.Debugger).From(script.Name)
 
@@ -64,7 +65,7 @@ function LitePool.new(instanceType: string, config: TypeDef.PoolConfig?): TypeDe
 	self._instanceType = instanceType
 	self._templateInstance = config.templateInstance
 	self._cleanupCallback = config.cleanupCallback
-	self._lock = {isLocked = false, queue = {}}
+	self._mutex = Mutex.new()
 	self._maxSize = config.maxSize or DEFAULT_MAX_SIZE
 	self._initialSize = config.initialSize or DEFAULT_INITIAL_SIZE
 	self._isDestroyed = false
@@ -150,7 +151,7 @@ function LitePool:Get(): Instance
 	if self._isDestroyed then
 		Debugger:Throw("error", "Get", "Pool is destroyed.")
 	end
-	self:lock()
+	self._mutex:lock()
 	local instance: Instance?
 	local totalCount = self._activeCount + #self._idleInstances
 	if #self._idleInstances > 0 then
@@ -158,28 +159,40 @@ function LitePool:Get(): Instance
 	elseif totalCount < self._maxSize then
 		instance = self:_createInstance()
 	else
-		self:unlock()
+		self._mutex:unlock()
 		self.OnInstanceAvailable:Wait()
 		return self:Get()
 	end
 	self._activeInstances[instance] = true
 	self._activeCount += 1
-	pcall(function() self.OnGet:Fire(instance) end)
-	self:unlock()
+	task.spawn(function() 
+		pcall(function() self.OnGet:Fire(instance) end)
+	end)
+	self._mutex:unlock()
 	return instance
 end
 
-function LitePool:Return(instance: Instance)
+function LitePool:GetWithLease(ttl: number): Instance
+	local instance = self:Get()
+	task.delay(ttl, function()
+		if self._activeInstances[instance] then
+			self:Release(instance)
+		end
+	end)
+	return instance
+end
+
+function LitePool:Release(instance: Instance)
 	if self._isDestroyed then
 		if typeof(instance) == "Instance" then
 			self:_destroyInstance(instance, "PoolDestroyed")
 		end
 		return
 	end
-	self:lock()
+	self._mutex:lock()
 	if not self._activeInstances[instance] then
-		Debugger:Throw("warn", "Return", "Attempted to return an instance that was not active or does not belong to this pool.")
-		self:unlock()
+		Debugger:Throw("warn", "Release", "Attempted to release an instance that is not active.")
+		self._mutex:unlock()
 		return
 	end
 	self._activeInstances[instance] = nil
@@ -190,9 +203,11 @@ function LitePool:Return(instance: Instance)
 	else
 		table.insert(self._idleInstances, instance)
 	end
-	pcall(function() self.OnReturn:Fire(instance) end)
-	self.OnInstanceAvailable:Fire()
-	self:unlock()
+	task.spawn(function()
+		pcall(function() self.OnReturn:Fire(instance) end)
+		self.OnInstanceAvailable:Fire()
+	end)
+	self._mutex:unlock()
 end
 
 function LitePool:Destroy()
