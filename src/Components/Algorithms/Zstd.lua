@@ -1,3 +1,5 @@
+--!native
+--!optimize 2
 -- Yann Collet
 -- DO NOT EDIT IF YOU DON'T KNOW WHAT YOU'RE DOING
 local module = {}
@@ -24,7 +26,7 @@ local MAGIC_BYTES = 4
 
 local Huffman = {}
 
-function Huffman.getFrequencies(data, pos, len)
+function Huffman.getFrequencies(data: buffer, pos: number, len: number)
 	local frequencies = {}
 	for i = pos, pos + len - 1 do
 		local byte = buffer_readu8(data, i - 1)
@@ -39,6 +41,10 @@ function Huffman.buildTree(frequencies)
 		table.insert(nodes, {char = byte, freq = freq, leaf = true})
 	end
 	if #nodes == 0 then return nil end
+	table.sort(nodes, function(a, b) 
+		if a.freq == b.freq then return a.char < b.char end
+		return a.freq < b.freq 
+	end)
 	if #nodes == 1 then return {leaf = true, char = nodes[1].char} end
 	while #nodes > 1 do
 		table.sort(nodes, function(a, b) return a.freq < b.freq end)
@@ -51,115 +57,141 @@ function Huffman.buildTree(frequencies)
 end
 
 function Huffman.buildEncodingTable(tree)
-	local codes = {}
-	local function traverse(node, code, length)
+	local lengths = {}
+	local function traverse(node, length)
 		if not node then return end
 		if node.leaf then
-			codes[node.char] = {code = code, length = length}
+			lengths[node.char] = length
 		else
-			traverse(node.left, code, length + 1)
-			traverse(node.right, code + (2^length), length + 1)
+			traverse(node.left, length + 1)
+			traverse(node.right, length + 1)
 		end
 	end
 	if tree then
 		if tree.leaf and not tree.left and not tree.right then
-			codes[tree.char] = {code = 0, length = 1}
+			lengths[tree.char] = 1
 		else
-			traverse(tree, 0, 0)
+			traverse(tree, 0)
 		end
+	end
+	local sortedChars = {}
+	for char, len in pairs(lengths) do
+		table.insert(sortedChars, {char = char, len = len})
+	end
+	table.sort(sortedChars, function(a, b)
+		if a.len == b.len then return a.char < b.char end
+		return a.len < b.len
+	end)
+	local codes = {}
+	local currentCode = 0
+	local currentLen = sortedChars[1] and sortedChars[1].len or 0
+	for _, item in ipairs(sortedChars) do
+		while currentLen < item.len do
+			currentCode = bit32.lshift(currentCode, 1)
+			currentLen += 1
+		end
+
+		codes[item.char] = {code = currentCode, length = item.len}
+		currentCode += 1
 	end
 	return codes
 end
 
 function Huffman.serializeTable(codes)
-	local tempBuffer = buffer_create(512)
+	local tempBuffer = buffer_create(1024)
 	local writeOffset = 0
 	for char, data in pairs(codes) do
+		if writeOffset + 2 > buffer_len(tempBuffer) then
+			local newBuf = buffer_create(buffer_len(tempBuffer) * 2)
+			buffer_copy(newBuf, 0, tempBuffer, 0, writeOffset)
+			tempBuffer = newBuf
+		end
 		buffer_writeu8(tempBuffer, writeOffset, char)
-		writeOffset = writeOffset + 1
+		writeOffset += 1
 		buffer_writeu8(tempBuffer, writeOffset, data.length)
-		writeOffset = writeOffset + 1
+		writeOffset += 1
 	end
 	local finalBuffer = buffer_create(writeOffset)
 	buffer_copy(finalBuffer, 0, tempBuffer, 0, writeOffset)
 	return finalBuffer
 end
 
-function Huffman.deserializeTable(data, pos, size)
+function Huffman.deserializeTable(data: buffer, pos: number, size: number)
 	local tree = {}
-	local codes = {}
-	local maxLen = 0
-	for _ = 1, size do
+	local charLengths = {}
+	for _ = 1, size / 2 do 
 		local char = buffer_readu8(data, pos)
-		pos = pos + 1
+		pos += 1
 		local len = buffer_readu8(data, pos)
-		pos = pos + 1
-		codes[char] = len
-		maxLen = math.max(maxLen, len)
+		pos += 1
+		table.insert(charLengths, {char = char, len = len})
 	end
+	table.sort(charLengths, function(a, b)
+		if a.len == b.len then return a.char < b.char end
+		return a.len < b.len
+	end)
 	local currentCode = 0
-	for len = 1, maxLen do
-		for char, codeLen in pairs(codes) do
-			if codeLen == len then
-				local node = tree
-				for i = len - 1, 0, -1 do
-					local bit = bit32.band(bit32.rshift(currentCode, i), 1)
-					if not node[bit] then node[bit] = {} end
-					node = node[bit]
-				end
-				node.char = char
-				currentCode = currentCode + 1
-			end
+	local currentLen = charLengths[1] and charLengths[1].len or 0
+	for _, item in ipairs(charLengths) do
+		while currentLen < item.len do
+			currentCode = bit32.lshift(currentCode, 1)
+			currentLen += 1
 		end
-		currentCode = bit32.lshift(currentCode, 1)
+		local node = tree
+		for i = item.len - 1, 0, -1 do
+			local bit = bit32.band(bit32.rshift(currentCode, i), 1)
+			if not node[bit] then node[bit] = {} end
+			node = node[bit]
+		end
+		node.char = item.char
+		currentCode += 1
 	end
 	return tree, pos
 end
 
-local function getRollingHash(s, start)
+local function getRollingHash(s: buffer, start: number)
 	local h = 0
 	local prime = 31
+	local len = buffer_len(s)
 	for i = start, start + MIN_MATCH_LENGTH - 1 do
-		if i > buffer_len(s) then break end
+		if i > len then break end
 		h = bit32.band(h * prime + buffer_readu8(s, i-1), HASH_SIZE - 1)
 	end
 	return h
 end
 
-function module.compress(inputString)
+function module.compress(inputString: string)
 	if type(inputString) ~= "string" or #inputString == 0 then
 		return ""
 	end
-	local input = buffer_create(#inputString)
-	for i = 1, #inputString do
-		buffer_writeu8(input, i - 1, string.byte(inputString, i))
-	end
-	local compressedBuffer = buffer_create(buffer_len(input) + 100)
+	local input = buffer.fromstring(inputString)
+	local compressedBuffer = buffer_create(buffer_len(input) + 256)
 	local writeOffset = 0
 	buffer_writeu32(compressedBuffer, writeOffset, MAGIC_NUMBER_VALUE)
-	writeOffset = writeOffset + MAGIC_BYTES
+	writeOffset += MAGIC_BYTES
 	local inputPos = 1
 	while inputPos <= buffer_len(input) do
-		local block = buffer_create(math.min(buffer_len(input) - inputPos + 1, BLOCK_SIZE))
-		buffer_copy(block, 0, input, inputPos - 1, buffer_len(block))
-		inputPos = inputPos + buffer_len(block)
+		local blockLen = math.min(buffer_len(input) - inputPos + 1, BLOCK_SIZE)
+		local block = buffer_create(blockLen)
+		buffer_copy(block, 0, input, inputPos - 1, blockLen)
+		inputPos += blockLen
 		local literals = {}
 		local sequences = {}
 		local hashTable = {}
 		local pos = 1
 		local anchor = 1
-		while pos <= buffer_len(block) do
-			if pos + MIN_MATCH_LENGTH > buffer_len(block) then break end
+		while pos <= blockLen do
+			if pos + MIN_MATCH_LENGTH > blockLen then break end
 			local hash = getRollingHash(block, pos)
 			local matchPos = hashTable[hash]
 			local bestMatchLen = 0
 			local bestMatchDist = 0
 			if matchPos and pos - matchPos < 65535 then
 				local matchLen = 0
-				while pos + matchLen <= buffer_len(block) and
-					matchPos + matchLen <= buffer_len(block) and
+				while pos + matchLen <= blockLen and
+					matchPos + matchLen <= blockLen and
 					buffer_readu8(block, pos + matchLen -1) == buffer_readu8(block, matchPos + matchLen - 1) do
-					matchLen = matchLen + 1
+					matchLen += 1
 				end
 				if matchLen >= MIN_MATCH_LENGTH then
 					bestMatchLen = matchLen
@@ -175,44 +207,49 @@ function module.compress(inputString)
 					buffer_copy(litBlock, 0, block, anchor - 1, literalLen)
 					table.insert(literals, litBlock)
 				end
-				pos = pos + bestMatchLen
+				pos += bestMatchLen
 				anchor = pos
 			else
-				pos = pos + 1
+				pos += 1
 			end
 		end
-		if anchor <= buffer_len(block) then
-			local literalLen = buffer_len(block) - anchor + 1
+		if anchor <= blockLen then
+			local literalLen = blockLen - anchor + 1
 			table.insert(sequences, {litLen = literalLen, dist = 0, matchLen = 0})
 			local litBlock = buffer_create(literalLen)
 			buffer_copy(litBlock, 0, block, anchor - 1, literalLen)
 			table.insert(literals, litBlock)
 		end
 		local totalLitLen = 0
-		for _, litBuf in ipairs(literals) do totalLitLen = totalLitLen + buffer_len(litBuf) end
+		for _, litBuf in ipairs(literals) do totalLitLen += buffer_len(litBuf) end
 		local literalsBuffer = buffer_create(totalLitLen)
 		local litOffset = 0
 		for _, litBuf in ipairs(literals) do
 			buffer_copy(literalsBuffer, litOffset, litBuf, 0, buffer_len(litBuf))
-			litOffset = litOffset + buffer_len(litBuf)
+			litOffset += buffer_len(litBuf)
 		end
 		local freqs = Huffman.getFrequencies(literalsBuffer, 1, buffer_len(literalsBuffer))
 		local tree = Huffman.buildTree(freqs)
 		local codes = Huffman.buildEncodingTable(tree)
 		local serializedTable = Huffman.serializeTable(codes)
-		local bitStreamBuffer = buffer_create(buffer_len(literalsBuffer))
+		local bitStreamBuffer = buffer_create(math.max(16, buffer_len(literalsBuffer)))
 		local bitPosition = 0
 		for i=1, buffer_len(literalsBuffer) do
 			local byte = buffer_readu8(literalsBuffer, i - 1)
 			local huffCode = codes[byte]
 			if huffCode then
-				for j = 0, huffCode.length - 1 do
+				for j = huffCode.length - 1, 0, -1 do
 					local bit = bit32.band(bit32.rshift(huffCode.code, j), 1)
 					local byteIndex = math.floor(bitPosition / 8)
 					local bitInByte = bitPosition % 8
-					local currentVal = buffer_readu8(bitStreamBuffer, byteIndex) or 0
+					if byteIndex >= buffer_len(bitStreamBuffer) then
+						local newBuf = buffer_create(buffer_len(bitStreamBuffer) * 2)
+						buffer_copy(newBuf, 0, bitStreamBuffer, 0, buffer_len(bitStreamBuffer))
+						bitStreamBuffer = newBuf
+					end
+					local currentVal = buffer_readu8(bitStreamBuffer, byteIndex)
 					buffer_writeu8(bitStreamBuffer, byteIndex, bit32.bor(currentVal, bit32.lshift(bit, bitInByte)))
-					bitPosition = bitPosition + 1
+					bitPosition += 1
 				end
 			end
 		end
@@ -225,28 +262,32 @@ function module.compress(inputString)
 			buffer_writeu32(sequencesBuffer, seqOffset, seq.litLen)
 			buffer_writeu32(sequencesBuffer, seqOffset + 4, seq.matchLen)
 			buffer_writeu32(sequencesBuffer, seqOffset + 8, seq.dist)
-			seqOffset = seqOffset + 12
+			seqOffset += 12
 		end
-		local blockContentLen = 4 + buffer_len(serializedTable) + 4 + buffer_len(sequencesBuffer) + buffer_len(encodedLiterals)
+		local blockContentLen = 8 + buffer_len(serializedTable) + buffer_len(sequencesBuffer) + buffer_len(encodedLiterals)
 		local compressedBlockContent = buffer_create(blockContentLen)
 		local bccOffset = 0
-		buffer_writeu32(compressedBlockContent, bccOffset, buffer_len(serializedTable)); bccOffset = bccOffset + 4
-		buffer_copy(compressedBlockContent, bccOffset, serializedTable, 0, buffer_len(serializedTable)); bccOffset = bccOffset + buffer_len(serializedTable)
-		buffer_writeu32(compressedBlockContent, bccOffset, #sequences); bccOffset = bccOffset + 4
-		buffer_copy(compressedBlockContent, bccOffset, sequencesBuffer, 0, buffer_len(sequencesBuffer)); bccOffset = bccOffset + buffer_len(sequencesBuffer)
+		buffer_writeu32(compressedBlockContent, bccOffset, buffer_len(serializedTable))
+		bccOffset += 4
+		buffer_copy(compressedBlockContent, bccOffset, serializedTable, 0, buffer_len(serializedTable))
+		bccOffset += buffer_len(serializedTable)
+		buffer_writeu32(compressedBlockContent, bccOffset, #sequences)
+		bccOffset += 4
+		buffer_copy(compressedBlockContent, bccOffset, sequencesBuffer, 0, buffer_len(sequencesBuffer))
+		bccOffset += buffer_len(sequencesBuffer)
 		buffer_copy(compressedBlockContent, bccOffset, encodedLiterals, 0, buffer_len(encodedLiterals))
-		if buffer_len(compressedBlockContent) < buffer_len(block) then
+		if buffer_len(compressedBlockContent) < blockLen then
 			buffer_writeu8(compressedBuffer, writeOffset, 1)
 			buffer_writeu32(compressedBuffer, writeOffset + 1, buffer_len(compressedBlockContent))
-			writeOffset = writeOffset + 5
+			writeOffset += 5
 			buffer_copy(compressedBuffer, writeOffset, compressedBlockContent, 0, buffer_len(compressedBlockContent))
-			writeOffset = writeOffset + buffer_len(compressedBlockContent)
+			writeOffset += buffer_len(compressedBlockContent)
 		else
 			buffer_writeu8(compressedBuffer, writeOffset, 0)
-			buffer_writeu32(compressedBuffer, writeOffset + 1, buffer_len(block))
-			writeOffset = writeOffset + 5
-			buffer_copy(compressedBuffer, writeOffset, block, 0, buffer_len(block))
-			writeOffset = writeOffset + buffer_len(block)
+			buffer_writeu32(compressedBuffer, writeOffset + 1, blockLen)
+			writeOffset += 5
+			buffer_copy(compressedBuffer, writeOffset, block, 0, blockLen)
+			writeOffset += blockLen
 		end
 	end
 	local finalBuffer = buffer_create(writeOffset)
@@ -254,106 +295,116 @@ function module.compress(inputString)
 	return buffer_tostring(finalBuffer)
 end
 
-function module.decompress(compressedString)
+function module.decompress(compressedString: string)
 	if type(compressedString) ~= "string" or #compressedString < MAGIC_BYTES + 5 then
 		error("Invalid or corrupted data")
 	end
-	local compressed = buffer_create(#compressedString)
-	for i = 1, #compressedString do
-		buffer_writeu8(compressed, i - 1, string.byte(compressedString, i))
-	end
+	local compressed = buffer.fromstring(compressedString)
 	local readOffset = 0
-	if buffer_readu32(compressed, readOffset) ~= MAGIC_NUMBER_VALUE then
-		error("Invalid or corrupted data: missing magic number")
+	local magic = buffer_readu32(compressed, readOffset)
+	if magic ~= MAGIC_NUMBER_VALUE then
+		error(string.format("Invalid magic number. Expected FD2FB528, got %08X", magic))
 	end
-	readOffset = readOffset + MAGIC_BYTES
+	readOffset += MAGIC_BYTES
 	local output = {}
 	while readOffset < buffer_len(compressed) do
 		local flag = buffer_readu8(compressed, readOffset)
 		local blockSize = buffer_readu32(compressed, readOffset + 1)
-		readOffset = readOffset + 5
+		readOffset += 5
 		if flag == 0 then
 			local rawBlock = buffer_create(blockSize)
 			buffer_copy(rawBlock, 0, compressed, readOffset, blockSize)
 			table.insert(output, rawBlock)
-			readOffset = readOffset + blockSize
+			readOffset += blockSize
 		else
+			local blockStart = readOffset
+			readOffset += blockSize 
 			local blockData = buffer_create(blockSize)
-			buffer_copy(blockData, 0, compressed, readOffset, blockSize)
-			readOffset = readOffset + blockSize
+			buffer_copy(blockData, 0, compressed, blockStart, blockSize)
 			local current = 0
-			local tableSize = buffer_readu32(blockData, current); current = current + 4
+			local tableSize = buffer_readu32(blockData, current)
+			current += 4
 			local decodingTree, nextPos = Huffman.deserializeTable(blockData, current, tableSize)
 			current = nextPos
-			local numSequences = buffer_readu32(blockData, current); current = current + 4
-			local sequences = {}
+			local numSequences = buffer_readu32(blockData, current)
+			current += 4
+			local sequences = table.create(numSequences)
+			local totalLitLen = 0
+			local totalDecompressedSize = 0
 			for i = 1, numSequences do
+				if current + 12 > buffer_len(blockData) then
+					error("Zstd: Corrupted Sequence Data (Buffer OOB)")
+				end
 				local litLen = buffer_readu32(blockData, current)
 				local matchLen = buffer_readu32(blockData, current + 4)
 				local dist = buffer_readu32(blockData, current + 8)
-				current = current + 12
-				table.insert(sequences, {litLen = litLen, matchLen = matchLen, dist = dist})
+				current += 12
+				sequences[i] = {litLen = litLen, matchLen = matchLen, dist = dist}
+				totalLitLen += litLen
+				totalDecompressedSize += (litLen + matchLen)
 			end
 			local literalStream = buffer_create(buffer_len(blockData) - current)
 			buffer_copy(literalStream, 0, blockData, current, buffer_len(literalStream))
-			local literals = {}
+			local literalsBuffer = buffer_create(totalLitLen)
+			local litWritePos = 0
 			local bitPosition = 0
-			local totalLitLen = 0
 			local totalLitBits = buffer_len(literalStream) * 8
-			for _, seq in ipairs(sequences) do totalLitLen = totalLitLen + seq.litLen end
 			local node = decodingTree
 			for _ = 1, totalLitLen do
 				while node and not node.char do
-					if bitPosition >= totalLitBits then
-						break 
-					end
+					if bitPosition >= totalLitBits then break end
 					local byteIndex = math.floor(bitPosition / 8)
 					local bitInByte = bitPosition % 8
-					if byteIndex >= buffer_len(literalStream) then 
-						break 
-					end
+					if byteIndex >= buffer_len(literalStream) then break end
 					local byte = buffer_readu8(literalStream, byteIndex)
 					local bit = bit32.band(bit32.rshift(byte, bitInByte), 1)
-					bitPosition = bitPosition + 1
+					bitPosition += 1
 					node = node[bit]
 				end
 				if node and node.char then
-					table.insert(literals, string.char(node.char))
+					buffer_writeu8(literalsBuffer, litWritePos, node.char)
+					litWritePos += 1
 					node = decodingTree
 				else
 					break
 				end
 			end
-			local literalsString = table.concat(literals)
-			local litRead = 1
-			local blockOutput = {}
+			local finalBlockBuf = buffer_create(totalDecompressedSize)
+			local writePos = 0
+			local litReadPos = 0
 			for _, seq in ipairs(sequences) do
 				if seq.litLen > 0 then
-					table.insert(blockOutput, string.sub(literalsString, litRead, litRead + seq.litLen - 1))
-					litRead = litRead + seq.litLen
+					buffer_copy(finalBlockBuf, writePos, literalsBuffer, litReadPos, seq.litLen)
+					writePos += seq.litLen
+					litReadPos += seq.litLen
 				end
 				if seq.matchLen > 0 then
-					local matchStart = #table.concat(blockOutput) - seq.dist
-					local currentString = table.concat(blockOutput)
-					for i = 1, seq.matchLen do
-						local char = string.sub(currentString, matchStart + i - 1, matchStart + i - 1)
-						table.insert(blockOutput, char)
+					local matchOffset = writePos - seq.dist
+					if matchOffset < 0 then
+						error("Zstd: Invalid match distance (buffer underflow)")
 					end
+
+					if seq.dist >= seq.matchLen then
+						buffer_copy(finalBlockBuf, writePos, finalBlockBuf, matchOffset, seq.matchLen)
+					else
+						for i = 0, seq.matchLen - 1 do
+							local byte = buffer_readu8(finalBlockBuf, matchOffset + (i % seq.dist))
+							buffer_writeu8(finalBlockBuf, writePos + i, byte)
+						end
+					end
+					writePos += seq.matchLen
 				end
 			end
-			local finalBlockStr = table.concat(blockOutput)
-			local finalBlockBuf = buffer_create(#finalBlockStr)
-			for i=1, #finalBlockStr do buffer_writeu8(finalBlockBuf, i-1, string.byte(finalBlockStr, i)) end
 			table.insert(output, finalBlockBuf)
 		end
 	end
 	local totalLen = 0
-	for _, buf in ipairs(output) do totalLen = totalLen + buffer_len(buf) end
+	for _, buf in ipairs(output) do totalLen += buffer_len(buf) end
 	local finalOutputBuffer = buffer_create(totalLen)
 	local outOffset = 0
 	for _, buf in ipairs(output) do
 		buffer_copy(finalOutputBuffer, outOffset, buf, 0, buffer_len(buf))
-		outOffset = outOffset + buffer_len(buf)
+		outOffset += buffer_len(buf)
 	end
 	return buffer_tostring(finalOutputBuffer)
 end
