@@ -68,7 +68,7 @@ function LiteState:Batch(callback)
 	local success, err = pcall(callback)
 	self._batchDepth -= 1
 	if not success then
-		Debugger:Throw("error", "Batch", "Error during batch update: "..tostring(err))
+		Debugger:Log("error", "Batch", "Error during batch update: "..tostring(err))
 	end
 	if self._batchDepth == 0 and self._batchChanged then
 		self._batchChanged = false

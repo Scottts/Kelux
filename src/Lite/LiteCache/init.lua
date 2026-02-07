@@ -80,7 +80,7 @@ local function normalizeKey(key)
 	elseif keyType == "table" then
 		return tableKey(key)
 	else
-		Debugger:Throw("error", "normalizeKey", ("expected key to be string, table, or userdata, got: %s")
+		Debugger:Log("error", "normalizeKey", ("expected key to be string, table, or userdata, got: %s")
 			:format(keyType))
 	end
 end
@@ -128,7 +128,7 @@ function LiteCache:_setPolicy(opts)
 			end
 			table.sort(policyNames)
 			local valid = table.concat(policyNames, ", ")
-			Debugger:Throw("error","SetPolicy", ("unrecognized policy %q; valid options: %s")
+			Debugger:Log("error","SetPolicy", ("unrecognized policy %q; valid options: %s")
 				:format(opts.Policy, valid))
 		end	
 		Policy = policyModule.new(self._maxobj, self)
@@ -212,11 +212,11 @@ function LiteCache.Create<T>(CacheName:string, MaxObjects:number?, Opts:{Mode:st
 	createMutex:lock()
 	local success, result = pcall(function()
 		if typeof(CacheName) ~= "string" then
-			Debugger:Throw("error","Create", ("invalid CacheName (%s); expected a string")
+			Debugger:Log("error","Create", ("invalid CacheName (%s); expected a string")
 				:format(typeof(CacheName)))
 		end
 		if MaxObjects and typeof(MaxObjects) ~= "number" then
-			Debugger:Throw("error","Create", ("invalid MaxObjects (%s); expected a positive integer")
+			Debugger:Log("error","Create", ("invalid MaxObjects (%s); expected a positive integer")
 				:format(CacheName, tostring(MaxObjects)))
 		end
 
@@ -280,7 +280,7 @@ end
 
 function LiteCache:Pause()
 	if self._destroyed then
-		Debugger:Throw("error", "Pause", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Pause", "Attempt to use a destroyed cache instance.")
 		return
 	end
 	self._mutex:lock()
@@ -296,7 +296,7 @@ end
 
 function LiteCache:Resume()
 	if self._destroyed then
-		Debugger:Throw("error", "Resume", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Resume", "Attempt to use a destroyed cache instance.")
 		return
 	end
 	self._mutex:lock()
@@ -385,7 +385,7 @@ end
 
 function LiteCache:Has(key:string|{any}):boolean
 	if self._destroyed then
-		Debugger:Throw("error", "Has", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Has", "Attempt to use a destroyed cache instance.")
 		return
 	end
 	self._mutex:lock()
@@ -399,7 +399,7 @@ end
 
 function LiteCache:Remove(key:string|{any}):()
 	if self._destroyed then
-		Debugger:Throw("error", "Remove", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Remove", "Attempt to use a destroyed cache instance.")
 		return
 	end
 	self._mutex:lock()
@@ -417,7 +417,7 @@ end
 
 function LiteCache:Clear():()
 	if self._destroyed then
-		Debugger:Throw("error", "Clear", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Clear", "Attempt to use a destroyed cache instance.")
 		return
 	end
 	self._mutex:lock()
@@ -431,7 +431,7 @@ end
 
 function LiteCache:Destroy()
 	if self._destroyed then
-		Debugger:Throw("error", "Destroy", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Destroy", "Attempt to use a destroyed cache instance.")
 		return
 	end
 	self._mutex:lock()
@@ -469,7 +469,7 @@ end
 
 function LiteCache:SetWithTTL(key:string|{any}, value:T, ttl:number):T
 	if self._destroyed then
-		Debugger:Throw("error", "SetWithTTL", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "SetWithTTL", "Attempt to use a destroyed cache instance.")
 		return
 	end
 	self._mutex:lock()
@@ -496,7 +496,7 @@ end
 
 function LiteCache:TTLRemaining(key):number?
 	if self._destroyed then
-		Debugger:Throw("error", "TTLRemaining", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "TTLRemaining", "Attempt to use a destroyed cache instance.")
 		return
 	end
 	self._mutex:lock()
@@ -519,7 +519,7 @@ end
 
 function LiteCache:Peek(key:string|{any}):T?
 	if self._destroyed then
-		Debugger:Throw("error", "Peek", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Peek", "Attempt to use a destroyed cache instance.")
 		return
 	end
 	self._mutex:lock()
@@ -540,7 +540,7 @@ end
 
 function LiteCache:Keys():{string|{any}}
 	if self._destroyed then
-		Debugger:Throw("error", "Keys", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Keys", "Attempt to use a destroyed cache instance.")
 		return
 	end
 	self._mutex:lock()
@@ -564,7 +564,7 @@ end
 
 function LiteCache:Values():{T}
 	if self._destroyed then
-		Debugger:Throw("error", "Values", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Values", "Attempt to use a destroyed cache instance.")
 		return
 	end
 	self._mutex:lock()

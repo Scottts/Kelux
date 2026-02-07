@@ -8,7 +8,7 @@ function module.From(Title)
 end
 
 -- General
-function module:Throw(Type:string, method:string, msg:string, level:number)
+function module:Log(Type:string, method:string, msg:string, level:number)
 	local Title = self.Title or script.Parent.Name
 	local Type = string.lower(Type)
 	if Type == "error" then
@@ -17,7 +17,7 @@ function module:Throw(Type:string, method:string, msg:string, level:number)
 	elseif Type == "warn" then
 		warn(("%s.%s: %s")
 			:format(Title, method, msg))
-	elseif Type == "print" then
+	elseif Type == "info" or Type == "print" then
 		print(("%s.%s: %s") 
 			:format(Title, method, msg))
 	else -- Fallback
@@ -55,17 +55,17 @@ function module.Check(maxSize, policyName)
 		if typeof(maxSize) == "string" then
 			local num = tonumber(maxSize)
 			if num == nil then
-				module:Throw("error","Check",("%s.new: maxSize (%s) could not be converted to a number.")
+				module:Log("error","Check",("%s.new: maxSize (%s) could not be converted to a number.")
 					:format(policyName,maxSize))
 			end
 			maxSize = num
 		else
-			module:Throw("error","Check",("%s.new: maxSize must be a number, got type: %q")
+			module:Log("error","Check",("%s.new: maxSize must be a number, got type: %q")
 				:format(policyName, maxSize))
 		end
 	end
 	if maxSize < 0 then
-		module:Throw("error","Check",("%s.new: maxSize must be a non-negative number, got number: %s")
+		module:Log("error","Check",("%s.new: maxSize must be a non-negative number, got number: %s")
 			:format(policyName, maxSize))
 	end
 	return maxSize

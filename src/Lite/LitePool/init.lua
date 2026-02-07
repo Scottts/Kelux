@@ -53,12 +53,12 @@ function LitePool.new(instanceType: string, config: TypeDef.PoolConfig?): TypeDe
 		finalInstanceType = config.templateInstance.ClassName
 	end
 	if typeof(finalInstanceType) ~= "string" then
-		Debugger:Throw("error", "new", "Could not determine a valid instanceType from the provided config.")
+		Debugger:Log("error", "new", "Could not determine a valid instanceType from the provided config.")
 	end
 	instanceType = finalInstanceType
 	local success, _ = pcall(Instance.new, instanceType)
 	if not success then
-		Debugger:Throw("error", "new", ("Invalid instanceType: %q")
+		Debugger:Log("error", "new", ("Invalid instanceType: %q")
 			:format(instanceType))
 	end
 	local self = setmetatable({}, LitePool)
@@ -128,7 +128,7 @@ end
 
 function LitePool.Create<T>(poolName: string, config: TypeDef.PoolConfig?):TypeDef.LitePool<T>
 	if typeof(poolName) ~= "string" then
-		Debugger:Throw("error", "Create", "poolName must be a string")
+		Debugger:Log("error", "Create", "poolName must be a string")
 	end
 	config = config or {}
 	config.name = poolName
@@ -140,7 +140,7 @@ function LitePool.Create<T>(poolName: string, config: TypeDef.PoolConfig?):TypeD
 		return pool
 	end
 	if not config.instanceType and not config.templateInstance then
-		Debugger:Throw("error", "Create", "Either 'instanceType' or 'templateInstance' must be provided in the config for a new pool.")
+		Debugger:Log("error", "Create", "Either 'instanceType' or 'templateInstance' must be provided in the config for a new pool.")
 	end
 	local newPool = LitePool.new(config.instanceType, config)
 	Pools[poolName] = newPool
@@ -149,7 +149,7 @@ end
 
 function LitePool:Get(): Instance
 	if self._isDestroyed then
-		Debugger:Throw("error", "Get", "Pool is destroyed.")
+		Debugger:Log("error", "Get", "Pool is destroyed.")
 	end
 	self._mutex:lock()
 	local instance: Instance?
@@ -191,7 +191,7 @@ function LitePool:Release(instance: Instance)
 	end
 	self._mutex:lock()
 	if not self._activeInstances[instance] then
-		Debugger:Throw("warn", "Release", "Attempted to release an instance that is not active.")
+		Debugger:Log("warn", "Release", "Attempted to release an instance that is not active.")
 		self._mutex:unlock()
 		return
 	end

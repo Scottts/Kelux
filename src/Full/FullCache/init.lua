@@ -123,7 +123,7 @@ local function normalizeKey(key)
 		-- Only call tableKey for actual tables
 		return tableKey(key)
 	else
-		Debugger:Throw("error", "normalizeKey", ("expected key to be string, table, or userdata, got: %s")
+		Debugger:Log("error", "normalizeKey", ("expected key to be string, table, or userdata, got: %s")
 			:format(keyType))
 	end
 end
@@ -320,7 +320,7 @@ function FullCache:_ensureMemoryForSize(additionalSize)
 			end
 		end
 		if not freedMemoryInIteration then
-			Debugger:Throw("warn", "_ensureMemoryForSize", "Failed to free memory; no eviction candidates found.")
+			Debugger:Log("warn", "_ensureMemoryForSize", "Failed to free memory; no eviction candidates found.")
 			return false -- Explicitly fail
 		end
 	end
@@ -349,7 +349,7 @@ function FullCache:_evictArrayOne()
 		self._array[self._arrayHead] = nil
 		self._arrayHead += 1
 		entry = self._array[self._arrayHead]
-		Debugger:Throw("warn", "_evictArrayOne", "Correcting for nil entry at array head.")
+		Debugger:Log("warn", "_evictArrayOne", "Correcting for nil entry at array head.")
 		self._arrayCount = math.max(0, self._arrayCount - 1)
 	end
 	if not entry then
@@ -451,7 +451,7 @@ function FullCache:_setPolicy(opts)
 			end
 			table.sort(policyNames)
 			local valid = table.concat(policyNames, ", ")
-			Debugger:Throw("error","SetPolicy", ("unrecognized policy %q; valid options: %s")
+			Debugger:Log("error","SetPolicy", ("unrecognized policy %q; valid options: %s")
 				:format(opts.Policy, valid))
 		end	
 		Policy = policyModule.new(self._maxobj, self)
@@ -476,7 +476,7 @@ function FullCache:_setPolicy(opts)
 		setmetatable(self._array, wk)
 		setmetatable(self._dict, wk)
 	elseif Mode and Mode ~= "strong" then
-		Debugger:Throw("warn","Create", ("invalid Mode %q; supported modes: \"strong\", \"k\", \"v\", \"kv\"")
+		Debugger:Log("warn","Create", ("invalid Mode %q; supported modes: \"strong\", \"k\", \"v\", \"kv\"")
 			:format(Mode))
 	end
 end
@@ -487,7 +487,7 @@ function FullCache:_encodeEntry(value, existingEntry)
 	local sizeDelta = entry._size - oldSize
 	if sizeDelta > 0 then
 		if not self:_ensureMemoryForSize(sizeDelta) then
-			Debugger:Throw("error", "_encodeEntry", "Not enough memory to store entry after pruning attempts.")
+			Debugger:Log("error", "_encodeEntry", "Not enough memory to store entry after pruning attempts.")
 			return nil
 		end
 	end
@@ -553,7 +553,7 @@ function FullCache:_prepareEntry(value, existingEntry)
 			end
 		else
 			success = false
-			Debugger:Throw("warn", "_prepareEntry", "Custom EstimateSizeFunction failed or returned non-number. Falling back.")
+			Debugger:Log("warn", "_prepareEntry", "Custom EstimateSizeFunction failed or returned non-number. Falling back.")
 		end
 	end
 	if not success then
@@ -595,7 +595,7 @@ function FullCache:_prepareEntry(value, existingEntry)
 		entry._size = calculatedSize
 		entry._json = jsonRepresentation
 		if self._memoryBudget and entry._size > self._memoryBudget then
-			Debugger:Throw("warn", "_prepareEntry", ("Entry size (%d) exceeds total memory budget (%d).")
+			Debugger:Log("warn", "_prepareEntry", ("Entry size (%d) exceeds total memory budget (%d).")
 				:format(entry._size, self._memoryBudget))
 			return nil
 		end
@@ -625,7 +625,7 @@ function FullCache:_prepareEntry(value, existingEntry)
 					else
 						entry._size = 0
 						entry._json = ""
-						Debugger:Throw("warn", "_prepareEntry", ("Failed to serialize or size value. Type: %s")
+						Debugger:Log("warn", "_prepareEntry", ("Failed to serialize or size value. Type: %s")
 							:format(type(value)))
 					end
 				end
@@ -635,11 +635,11 @@ function FullCache:_prepareEntry(value, existingEntry)
 	if not entry._size then
 		entry._size = 0
 		entry._json = ""
-		Debugger:Throw("warn", "_prepareEntry", ("Failed to serialize or size value. Type: %s")
+		Debugger:Log("warn", "_prepareEntry", ("Failed to serialize or size value. Type: %s")
 			:format(type(value)))
 	end
 	if entry._size > self._maxEntrySizeBytes then
-		Debugger:Throw("warn","_prepareEntry", ("Entry for value exceeds MaxSerializedSize (%d > %d) and will be skipped.")
+		Debugger:Log("warn","_prepareEntry", ("Entry for value exceeds MaxSerializedSize (%d > %d) and will be skipped.")
 			:format(entry._size, self._maxEntrySizeBytes))
 		return nil
 	end
@@ -649,7 +649,7 @@ end
 -- [[ Multi-Threading ]
 function FullCache:_executeParallel(taskItems, taskFn, workerCount)
 	if type(workerCount) ~= "number" then
-		Debugger:Throw("error", "_executeParallel",("expected workerCount to be number, got: %q")
+		Debugger:Log("error", "_executeParallel",("expected workerCount to be number, got: %q")
 			:format(type(workerCount)))
 	end
 	local numItems = #taskItems
@@ -729,7 +729,7 @@ function FullCache:_getInternal(key:string|{any}, SkipExpire:bool?):T?
 		self._virtuals[realKey] = nil
 		local success, value = pcall(computeFn)
 		if not success then
-			Debugger:Throw("error", "Get", ("Virtual computeFn for key %q failed: %s")
+			Debugger:Log("error", "Get", ("Virtual computeFn for key %q failed: %s")
 				:format(tostring(key), tostring(value)))
 			return nil
 		end
@@ -765,11 +765,11 @@ function FullCache:_setInternal(key, value)
 	local existingEntry = self._dict[realKey]
 	local entry = self:_encodeEntry(value, existingEntry)
 	if not entry then
-		Debugger:Throw("warn", "Set", "Failed to encode entry or not enough memory after pruning attempts.")
+		Debugger:Log("warn", "Set", "Failed to encode entry or not enough memory after pruning attempts.")
 		return
 	end
 	if entry._size > self._memoryBudget then
-		Debugger:Throw("warn", "Set", ("Entry for key '%s' is larger (%d bytes) than the total cache budget (%d bytes) and cannot be stored.")
+		Debugger:Log("warn", "Set", ("Entry for key '%s' is larger (%d bytes) than the total cache budget (%d bytes) and cannot be stored.")
 			:format(tostring(key), entry._size, self._memoryBudget))
 		return
 	end
@@ -841,11 +841,11 @@ function FullCache.Create<T>(CacheName:string, MaxObjects:number?, Opts:CreateOp
 	local success, result = pcall(function()
 		-- Asserts are slow...
 		if typeof(CacheName) ~= "string" then
-			Debugger:Throw("error","Create", ("invalid CacheName (%s); expected a string")
+			Debugger:Log("error","Create", ("invalid CacheName (%s); expected a string")
 				:format(typeof(CacheName)))
 		end
 		if MaxObjects and typeof(MaxObjects) ~= "number" then
-			Debugger:Throw("error","Create", ("invalid MaxObjects (%s); expected a positive integer")
+			Debugger:Log("error","Create", ("invalid MaxObjects (%s); expected a positive integer")
 				:format(tostring(MaxObjects)))
 		end
 		-- Return to default settings if these are nil
@@ -869,12 +869,12 @@ function FullCache.Create<T>(CacheName:string, MaxObjects:number?, Opts:CreateOp
 				and FormatType ~= "JSON" 
 				and FormatType ~= "KELP" 
 			then
-				Debugger:Throw("warn","Create", ("expected valid format, got: %s \nUsing JSON as fallback...")
+				Debugger:Log("warn","Create", ("expected valid format, got: %s \nUsing JSON as fallback...")
 					:format(FormatType))
 				FormatType = DefaultFormat
 			end
 		elseif opts.FormatType then
-			Debugger:Throw("warn","Create", ("expected FormatType to be string, got: %s \nUsing JSON as fallback...")
+			Debugger:Log("warn","Create", ("expected FormatType to be string, got: %s \nUsing JSON as fallback...")
 				:format(typeof(opts.FormatType)))
 		end
 
@@ -996,7 +996,7 @@ function FullCache.Create<T>(CacheName:string, MaxObjects:number?, Opts:CreateOp
 		if readOnly == true then
 			self:ReadOnly(true)
 		elseif type(readOnly) ~= "boolean" then
-			Debugger:Throw("warn", "FullCache", ("Invalid 'readOnly' argument, expected boolean, got: %q")
+			Debugger:Log("warn", "FullCache", ("Invalid 'readOnly' argument, expected boolean, got: %q")
 				:format(type(readOnly)))
 		end
 		-- Check if eviction is needed after TTL cleared out expired entries
@@ -1012,7 +1012,7 @@ function FullCache.Create<T>(CacheName:string, MaxObjects:number?, Opts:CreateOp
 	end)
 	createMutex:unlock()
 	if not success then
-		Debugger:Throw("error", "Create", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Create", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1020,7 +1020,7 @@ end
 
 function FullCache:Destroy()
 	if self._destroyed then
-		Debugger:Throw("error", "Destroy", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Destroy", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	self._mutex:lock()
@@ -1073,7 +1073,7 @@ function FullCache:Destroy()
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "Destroy", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Destroy", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1081,11 +1081,11 @@ end
 
 function FullCache:InsertSingle<T>(item:T):T
 	if self._destroyed then
-		Debugger:Throw("error", "InsertSingle", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "InsertSingle", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "InsertSingle", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "InsertSingle", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	self._mutex:lock()
@@ -1095,7 +1095,7 @@ function FullCache:InsertSingle<T>(item:T):T
 		end
 		local entry = self:_encodeEntry(item) 
 		if not entry then
-			Debugger:Throw("error", "InsertSingle", "Failed to encode or secure memory for item.")
+			Debugger:Log("error", "InsertSingle", "Failed to encode or secure memory for item.")
 		end
 		self._arrayLogicalEnd += 1
 		self._array[self._arrayLogicalEnd] = entry
@@ -1114,7 +1114,7 @@ function FullCache:InsertSingle<T>(item:T):T
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "InsertSingle", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "InsertSingle", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1122,11 +1122,11 @@ end
 
 function FullCache:InsertBatch(items:{T}):{T}
 	if self._destroyed then
-		Debugger:Throw("error", "InsertBatch", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "InsertBatch", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "InsertBatch", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "InsertBatch", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	self._mutex:lock()
@@ -1143,7 +1143,7 @@ function FullCache:InsertBatch(items:{T}):{T}
 				totalNewSize += entry._size
 				table.insert(successfulItems, itemValue)
 			else
-				Debugger:Throw("warn", "InsertBatch", ("Item skipped: too large or failed to prepare. Value: %s")
+				Debugger:Log("warn", "InsertBatch", ("Item skipped: too large or failed to prepare. Value: %s")
 					:format(tostring(itemValue)))
 			end
 		end
@@ -1161,7 +1161,7 @@ function FullCache:InsertBatch(items:{T}):{T}
 		end
 		if not self:_ensureMemoryForSize(totalNewSize) then
 			self:_resume()
-			Debugger:Throw("error", "InsertBatch", "Not enough memory for batch after pruning attempts. Batch aborted.")
+			Debugger:Log("error", "InsertBatch", "Not enough memory for batch after pruning attempts. Batch aborted.")
 			return {}
 		end
 		for _, entryData in ipairs(preparedEntries) do
@@ -1184,7 +1184,7 @@ function FullCache:InsertBatch(items:{T}):{T}
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "InsertBatch", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "InsertBatch", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1192,7 +1192,7 @@ end
 
 function FullCache:Cleanup():()
 	if self._readOnly then
-		Debugger:Throw("warn", "Cleanup", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Cleanup", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	self._mutex:lock()
@@ -1210,7 +1210,7 @@ function FullCache:Cleanup():()
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "Cleanup", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Cleanup", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1218,13 +1218,13 @@ end
 
 function FullCache:SetMetadata(key:string|{any}, data:object):boolean
 	if self._readOnly then
-		Debugger:Throw("warn", "SetMetadata", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "SetMetadata", "Cache is in read-only mode; operation ignored.")
 		return false
 	end
 	self._mutex:lock()
 	local success, result = pcall(function()
 		if type(data) ~= "table" then
-			Debugger:Throw("error", "SetMetadata", ("Expected data to be a table, got: %s")
+			Debugger:Log("error", "SetMetadata", ("Expected data to be a table, got: %s")
 				:format(type(data)))
 			return false
 		end
@@ -1240,7 +1240,7 @@ function FullCache:SetMetadata(key:string|{any}, data:object):boolean
 		end
 		local success, newJson = pcall(HttpService.JSONEncode, HttpService, data)
 		if not success then
-			Debugger:Throw("error", "SetMetadata", ("Failed to serialize metadata to JSON: %s")
+			Debugger:Log("error", "SetMetadata", ("Failed to serialize metadata to JSON: %s")
 				:format(tostring(newJson)))
 			return false
 		end
@@ -1248,7 +1248,7 @@ function FullCache:SetMetadata(key:string|{any}, data:object):boolean
 		local sizeDelta = newMetaSize - oldMetaSize
 		if sizeDelta > 0 then
 			if not self:_ensureMemoryForSize(sizeDelta) then
-				Debugger:Throw("warn", "SetMetadata", "Not enough memory to set metadata after pruning attempts.")
+				Debugger:Log("warn", "SetMetadata", "Not enough memory to set metadata after pruning attempts.")
 				return false
 			end
 		end
@@ -1270,7 +1270,7 @@ function FullCache:SetMetadata(key:string|{any}, data:object):boolean
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "SetMetadata", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "SetMetadata", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1282,7 +1282,7 @@ function FullCache:GetMetadata(key:string|{any}):object?
 	if entry and entry._metadata then
 		return _deepClone(entry._metadata)
 	end
-	Debugger:Throw("warn", "GetMetaData", ("%q metadata does not exist.")
+	Debugger:Log("warn", "GetMetaData", ("%q metadata does not exist.")
 		:format(key))
 	return nil
 end
@@ -1292,10 +1292,10 @@ end
 
 function FullCache:Set(key:string|{any}, value:T):T
 	if self._destroyed then
-		Debugger:Throw("error", "Set", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Set", "Attempt to use a destroyed cache instance.")
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "Set", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Set", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	self._mutex:lock()
@@ -1320,11 +1320,11 @@ end
 
 function FullCache:Update(key: string|{any}, updaterFn: (currentValue: T) -> T)
 	if self._destroyed then
-		Debugger:Throw("error", "Update", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Update", "Attempt to use a destroyed cache instance.")
 		return
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "Update", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Update", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	self._mutex:lock()
@@ -1351,7 +1351,7 @@ function FullCache:Update(key: string|{any}, updaterFn: (currentValue: T) -> T)
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "Update", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Update", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1359,13 +1359,13 @@ end
 
 function FullCache:Pin(key:string|{any}): boolean
 	if self._destroyed then
-		Debugger:Throw("error", "Pin", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Pin", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	self._mutex:lock()
 	local success, result = pcall(function()
 		if self._readOnly then
-			Debugger:Throw("warn", "Pin", "Cache is in read-only mode; operation ignored.")
+			Debugger:Log("warn", "Pin", "Cache is in read-only mode; operation ignored.")
 			return
 		end
 		local realKey = normalizeKey(key)
@@ -1390,7 +1390,7 @@ function FullCache:Pin(key:string|{any}): boolean
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "Pin", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Pin", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1398,7 +1398,7 @@ end
 
 function FullCache:Unpin(key:string|{any}): boolean
 	if self._readOnly then
-		Debugger:Throw("warn", "Unpin", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Unpin", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	self._mutex:lock()
@@ -1424,7 +1424,7 @@ function FullCache:Unpin(key:string|{any}): boolean
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "Unpin", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Unpin", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1432,7 +1432,7 @@ end
 
 function FullCache:Get(key:string|{any}, SkipExpire:bool?):T?
 	if self._destroyed then
-		Debugger:Throw("error", "Get", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Get", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	self._mutex:lock()
@@ -1451,7 +1451,7 @@ function FullCache:Get(key:string|{any}, SkipExpire:bool?):T?
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "Get", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Get", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1459,7 +1459,7 @@ end
 
 function FullCache:GetOrLoad(key:string|{any}, loader:()->T, ttl: number?)
 	if self._destroyed then
-		Debugger:Throw("error", "GetOrLoad", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "GetOrLoad", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	self._mutex:lock()
@@ -1490,7 +1490,7 @@ function FullCache:GetOrLoad(key:string|{any}, loader:()->T, ttl: number?)
 			self:_setInternal(key, res)
 		end
 	else
-		Debugger:Throw("error", "GetOrLoad", ("loader() threw: %s\n→ Check that your loader always returns a value, key: %q")
+		Debugger:Log("error", "GetOrLoad", ("loader() threw: %s\n→ Check that your loader always returns a value, key: %q")
 			:format(res, key))
 		res = nil
 	end
@@ -1514,7 +1514,7 @@ end
 
 function FullCache:Prefetch(key:string|{any}, loader:()->T, ttl:number?)
 	if self._destroyed then
-		Debugger:Throw("error", "Prefetch", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Prefetch", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self:Has(key) then
@@ -1526,7 +1526,7 @@ function FullCache:Prefetch(key:string|{any}, loader:()->T, ttl:number?)
 		end
 		local success, result = pcall(loader, key)
 		if not success then
-			Debugger:Throw("error", "Prefetch", ("loader() threw: %s\n→ Check that your loader always returns a value, key: %q")
+			Debugger:Log("error", "Prefetch", ("loader() threw: %s\n→ Check that your loader always returns a value, key: %q")
 				:format(result, key))
 			return
 		end
@@ -1540,23 +1540,23 @@ end
 
 function FullCache:DefineVirtual(key:string|{any}, computeFn:()->T)
 	if self._destroyed then
-		Debugger:Throw("error", "DefineVirtual", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "DefineVirtual", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "DefineVirtual", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "DefineVirtual", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	self._mutex:lock()
 	local success, result = pcall(function()
 		if type(computeFn) ~= "function" then
-			Debugger:Throw("error", "DefineVirtual", ("expected computeFn to be a function, got: %s")
+			Debugger:Log("error", "DefineVirtual", ("expected computeFn to be a function, got: %s")
 				:format(type(computeFn)))
 			return
 		end
 		local realKey = normalizeKey(key)
 		if self._dict[realKey] or self._virtuals[realKey] then
-			Debugger:Throw("warn", "DefineVirtual", ("Key %q already exists in the cache or as a virtual key. Definition ignored.")
+			Debugger:Log("warn", "DefineVirtual", ("Key %q already exists in the cache or as a virtual key. Definition ignored.")
 				:format(tostring(key)))
 			return
 		end
@@ -1573,7 +1573,7 @@ function FullCache:DefineVirtual(key:string|{any}, computeFn:()->T)
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "DefineVirtual", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "DefineVirtual", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1581,7 +1581,7 @@ end
 
 function FullCache:Has(key:string|{any}):boolean
 	if self._destroyed then
-		Debugger:Throw("error", "Has", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Has", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	self._mutex:lock()
@@ -1604,7 +1604,7 @@ function FullCache:Has(key:string|{any}):boolean
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "Has", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Has", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1612,11 +1612,11 @@ end
 
 function FullCache:Remove(key:string|{any}):()
 	if self._destroyed then
-		Debugger:Throw("error", "Remove", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Remove", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "Remove", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Remove", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	self._mutex:lock()
@@ -1650,7 +1650,7 @@ function FullCache:Remove(key:string|{any}):()
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "Remove", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Remove", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1658,7 +1658,7 @@ end
 
 function FullCache:Size(): number
 	if self._destroyed then
-		Debugger:Throw("error", "Size", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Size", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	self._mutex:lock()
@@ -1679,7 +1679,7 @@ function FullCache:Size(): number
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "Size", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Size", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1687,11 +1687,11 @@ end
 
 function FullCache:Clear():()
 	if self._destroyed then
-		Debugger:Throw("error", "Clear", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Clear", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "Clear", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Clear", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	self._mutex:lock()
@@ -1743,7 +1743,7 @@ function FullCache:Clear():()
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "Clear", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Clear", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1751,7 +1751,7 @@ end
 
 function FullCache:GetAll():{T}
 	if self._destroyed then
-		Debugger:Throw("error", "GetAll", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "GetAll", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	self._mutex:lock()
@@ -1779,7 +1779,7 @@ function FullCache:GetAll():{T}
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "GetAll", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "GetAll", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1787,7 +1787,7 @@ end
 
 function FullCache:ReadOnly(state:boolean)
 	if self._destroyed then
-		Debugger:Throw("error", "ReadOnly", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "ReadOnly", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	self._mutex:lock()
@@ -1801,7 +1801,7 @@ function FullCache:ReadOnly(state:boolean)
 				self._ttl:start()
 			end
 		else
-			Debugger:Throw("error", "ReadOnly", ("Expected state to be a boolean value, got type: %q")
+			Debugger:Log("error", "ReadOnly", ("Expected state to be a boolean value, got type: %q")
 				:format(type(state)))
 		end
 	end)
@@ -1816,7 +1816,7 @@ function FullCache:ReadOnly(state:boolean)
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "ReadOnly", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "ReadOnly", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1824,11 +1824,11 @@ end
 
 function FullCache:Pause()
 	if self._destroyed then
-		Debugger:Throw("error", "Pause", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Pause", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "Pause", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Pause", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	self._mutex:lock()
@@ -1846,7 +1846,7 @@ function FullCache:Pause()
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "Pause", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Pause", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1854,11 +1854,11 @@ end
 
 function FullCache:Resume()
 	if self._destroyed then
-		Debugger:Throw("error", "Resume", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Resume", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "Resume", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Resume", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	self._mutex:lock()
@@ -1876,7 +1876,7 @@ function FullCache:Resume()
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "Resume", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Resume", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1886,7 +1886,7 @@ end
 
 function FullCache:ToJSON(format:string?): string
 	if self._destroyed then
-		Debugger:Throw("error", "ToJSON", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "ToJSON", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	format = format and string.upper(format) or self._formatType
@@ -1896,22 +1896,22 @@ function FullCache:ToJSON(format:string?): string
 	elseif format == "KELP" then
 		return KELP.pack(snapshotForSerialization)
 	else
-		Debugger:Throw("error","ToJSON", ("unknown format %q; expected 'JSON' or 'KELP'")
+		Debugger:Log("error","ToJSON", ("unknown format %q; expected 'JSON' or 'KELP'")
 			:format(format))
 	end
 end
 
 function FullCache:FromJSON(String:string, format:string?)
 	if self._destroyed then
-		Debugger:Throw("error", "FromJSON", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "FromJSON", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "FromJSON", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "FromJSON", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	if not String then
-		Debugger:Throw("error","FromJSON", "expected serialized string, got: nil")
+		Debugger:Log("error","FromJSON", "expected serialized string, got: nil")
 	end
 	local Format = format or self._formatType
 	if Format == "JSON" then
@@ -1925,11 +1925,11 @@ end
 
 function FullCache:SetWithTTL(key:string|{any}, value:T, ttl:number):T
 	if self._destroyed then
-		Debugger:Throw("error", "SetWithTTL", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "SetWithTTL", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "SetWithTTL", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "SetWithTTL", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	self._mutex:lock()
@@ -1946,7 +1946,7 @@ function FullCache:SetWithTTL(key:string|{any}, value:T, ttl:number):T
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "SetWithTTL", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "SetWithTTL", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1954,7 +1954,7 @@ end
 
 function FullCache:TTLRemaining(key):number?
 	if self._destroyed then
-		Debugger:Throw("error", "TTLRemaining", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "TTLRemaining", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	local realKey = normalizeKey(key)
@@ -1967,11 +1967,11 @@ end
 
 function FullCache:RefreshTTL(key, extraSeconds)
 	if self._destroyed then
-		Debugger:Throw("error", "RefreshTTL", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "RefreshTTL", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "RefreshTTL", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "RefreshTTL", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	self._mutex:lock()
@@ -2000,7 +2000,7 @@ function FullCache:RefreshTTL(key, extraSeconds)
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "RefreshTTL", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "RefreshTTL", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -2008,11 +2008,11 @@ end
 
 function FullCache:Touch(key:string|{any}, timeBoost:number?):boolean
 	if self._destroyed then
-		Debugger:Throw("error", "Touch", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Touch", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "Touch", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Touch", "Cache is in read-only mode; operation ignored.")
 		return false
 	end
 	self._mutex:lock()
@@ -2052,7 +2052,7 @@ function FullCache:Touch(key:string|{any}, timeBoost:number?):boolean
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "Touch", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Touch", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -2060,11 +2060,11 @@ end
 
 function FullCache:ClearExpired()
 	if self._destroyed then
-		Debugger:Throw("error", "ClearExpired", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "ClearExpired", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "ClearExpired", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "ClearExpired", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	self._mutex:lock()
@@ -2098,7 +2098,7 @@ function FullCache:ClearExpired()
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "ClearExpired", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "ClearExpired", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -2108,7 +2108,7 @@ end
 
 function FullCache:Peek(key:string|{any}):T?
 	if self._destroyed then
-		Debugger:Throw("error", "Peek", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Peek", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	local realKey = normalizeKey(key)
@@ -2121,7 +2121,7 @@ end
 
 function FullCache:Keys():{string|{any}}
 	if self._destroyed then
-		Debugger:Throw("error", "Keys", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Keys", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	self._mutex:lock()
@@ -2149,7 +2149,7 @@ function FullCache:Keys():{string|{any}}
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "Keys", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Keys", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -2157,7 +2157,7 @@ end
 
 function FullCache:Values():{T}
 	if self._destroyed then
-		Debugger:Throw("error", "Values", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Values", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	self._mutex:lock()
@@ -2187,7 +2187,7 @@ function FullCache:Values():{T}
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "Values", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Values", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -2195,7 +2195,7 @@ end
 
 function FullCache:ForEach(fn:(key,value)->())
 	if self._destroyed then
-		Debugger:Throw("error", "ForEach", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "ForEach", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	self._mutex:lock()
@@ -2224,7 +2224,7 @@ function FullCache:ForEach(fn:(key,value)->())
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "ForEach", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "ForEach", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -2234,11 +2234,11 @@ end
 
 function FullCache:BulkSet(entries:{[string|{any}]:T}, options:{parallel:number?})
 	if self._destroyed then
-		Debugger:Throw("error", "BulkSet", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "BulkSet", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "BulkSet", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "BulkSet", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	self._mutex:lock()
@@ -2292,7 +2292,7 @@ function FullCache:BulkSet(entries:{[string|{any}]:T}, options:{parallel:number?
 				preparedDictEntriesMap[realKey] = {entry = entryData, originalKey = key}
 				totalNewOrUpdatedSize += entryData._size
 			else
-				Debugger:Throw("warn", "BulkSet", ("Entry for key %s skipped: too large or failed to prepare.")
+				Debugger:Log("warn", "BulkSet", ("Entry for key %s skipped: too large or failed to prepare.")
 					:format(tostring(key)))
 			end
 		end
@@ -2303,7 +2303,7 @@ function FullCache:BulkSet(entries:{[string|{any}]:T}, options:{parallel:number?
 		local netSizeIncrease = totalNewOrUpdatedSize - actualOldSizeOfUpdatedItems
 		if not self:_ensureMemoryForSize(netSizeIncrease) then
 			self:_resume()
-			Debugger:Throw("error", "BulkSet", "Not enough memory for bulk set after pruning. Operation aborted.")
+			Debugger:Log("error", "BulkSet", "Not enough memory for bulk set after pruning. Operation aborted.")
 			return
 		end
 		for realKey, itemData in pairs(preparedDictEntriesMap) do
@@ -2347,7 +2347,7 @@ function FullCache:BulkSet(entries:{[string|{any}]:T}, options:{parallel:number?
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "BulkSet", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "BulkSet", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -2355,11 +2355,11 @@ end
 
 function FullCache:BulkRemove(keys:{string|{any}})
 	if self._destroyed then
-		Debugger:Throw("error", "BulkRemove", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "BulkRemove", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "BulkRemove", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "BulkRemove", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	self._mutex:lock()
@@ -2394,7 +2394,7 @@ function FullCache:BulkRemove(keys:{string|{any}})
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "BulkRemove", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "BulkRemove", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -2402,7 +2402,7 @@ end
 
 function FullCache:BulkGet(keys:{string|{any}}, options:{parallel:number?}):{T?}
 	if self._destroyed then
-		Debugger:Throw("error", "BulkGet", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "BulkGet", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	self._mutex:lock()
@@ -2485,7 +2485,7 @@ function FullCache:BulkGet(keys:{string|{any}}, options:{parallel:number?}):{T?}
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "BulkGet", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "BulkGet", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -2495,7 +2495,7 @@ end
 
 function FullCache:GetMemoryUsage(): number
 	if self._destroyed then
-		Debugger:Throw("error", "GetMemoryUsage", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "GetMemoryUsage", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	return self._arrayMemoryUsage + self._dictMemoryUsage
@@ -2503,7 +2503,7 @@ end
 
 function FullCache:GetMemoryUsageByType():{T}
 	if self._destroyed then
-		Debugger:Throw("error", "GetMemoryUsageByType", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "GetMemoryUsageByType", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	return {
@@ -2514,7 +2514,7 @@ end
 
 function FullCache:GetRemainingMemory():number
 	if self._destroyed then
-		Debugger:Throw("error", "GetRemainingMemory", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "GetRemainingMemory", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if not self._memoryBudget then
@@ -2525,7 +2525,7 @@ end
 
 function FullCache:GetMemoryInfo():{T}
 	if self._destroyed then
-		Debugger:Throw("error", "GetMemoryInfo", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "GetMemoryInfo", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	local used = self:GetMemoryUsage()
@@ -2541,7 +2541,7 @@ end
 
 function FullCache:IsNearMemoryBudget(threshold:number):boolean
 	if self._destroyed then
-		Debugger:Throw("error", "IsNearMemoryBudget", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "IsNearMemoryBudget", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	threshold = threshold or 0.9
@@ -2555,17 +2555,17 @@ end
 
 function FullCache:Resize(newMax:number)
 	if self._destroyed then
-		Debugger:Throw("error", "Resize", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Resize", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "Resize", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Resize", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	self._mutex:lock()
 	local success, result = pcall(function()
 		if typeof(newMax) ~= "number" or newMax <= 0 then
-			Debugger:Throw("error","Resize", ("expected newMax to be a positive number, got: %q %s")
+			Debugger:Log("error","Resize", ("expected newMax to be a positive number, got: %q %s")
 				:format(typeof(newMax),newMax))
 		end
 		self._maxobj = newMax
@@ -2592,7 +2592,7 @@ function FullCache:Resize(newMax:number)
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "Resize", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Resize", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -2600,17 +2600,17 @@ end
 
 function FullCache:SetPolicy(policyName: string)
 	if self._destroyed then
-		Debugger:Throw("error", "SetPolicy", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "SetPolicy", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "SetPolicy", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "SetPolicy", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	self._mutex:lock()
 	local success, result = pcall(function()
 		if typeof(policyName) ~= "string" then
-			Debugger:Throw("error", "SetPolicy", ("expected policyName to be a string, got: %s")
+			Debugger:Log("error", "SetPolicy", ("expected policyName to be a string, got: %s")
 				:format(typeof(policyName)))
 		end
 		local up = policyName:upper()
@@ -2619,7 +2619,7 @@ function FullCache:SetPolicy(policyName: string)
 		end
 		local module = Policies[up]
 		if not module then
-			Debugger:Throw("error", "SetPolicy", ("invalid policy: %s")
+			Debugger:Log("error", "SetPolicy", ("invalid policy: %s")
 				:format(policyName))
 		end
 		self._policy = module.new(self._maxobj, self)
@@ -2648,7 +2648,7 @@ function FullCache:SetPolicy(policyName: string)
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "SetPolicy", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "SetPolicy", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -2656,17 +2656,17 @@ end
 
 function FullCache:SetMemoryBudget(budget:number)
 	if self._destroyed then
-		Debugger:Throw("error", "SetMemoryBudget", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "SetMemoryBudget", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "SetMemoryBudget", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "SetMemoryBudget", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	self._mutex:lock()
 	local success, result = pcall(function()
 		if typeof(budget) ~= "number" or budget <= 0 then
-			Debugger:Throw("error","SetMemoryBudget", ("expected memoryBudget to be a positive number, got: %q %s")
+			Debugger:Log("error","SetMemoryBudget", ("expected memoryBudget to be a positive number, got: %q %s")
 				:format(typeof(budget),budget))
 		end
 		self._memoryBudget = budget
@@ -2683,7 +2683,7 @@ function FullCache:SetMemoryBudget(budget:number)
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "SetMemoryBudget", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "SetMemoryBudget", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -2693,7 +2693,7 @@ end
 
 function FullCache:Watch():(() -> TypeDef.WatchEvent<T>?, () -> ())
 	if self._destroyed then
-		Debugger:Throw("error", "Watch", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Watch", "Attempt to use a destroyed cache instance.")
 		return function() end, function() end
 	end
 	self._mutex:lock()
@@ -2724,7 +2724,7 @@ function FullCache:Watch():(() -> TypeDef.WatchEvent<T>?, () -> ())
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "Watch", "Failed to create watcher: " .. tostring(result))
+		Debugger:Log("error", "Watch", "Failed to create watcher: " .. tostring(result))
 		return function() end, function() end
 	end
 	return result[1], result[2]
@@ -2732,7 +2732,7 @@ end
 
 function FullCache:OnEvict(fn:(info: TypeDef.EvictionInfo<T>)->()):number
 	if self._destroyed then
-		Debugger:Throw("error", "OnEvict", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "OnEvict", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	return self._evictSignal:Connect(fn)
@@ -2740,7 +2740,7 @@ end
 
 function FullCache:OnHit(fn:(key, value)->())
 	if self._destroyed then
-		Debugger:Throw("error", "OnHit", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "OnHit", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	return self._hitSignal:Connect(fn)
@@ -2748,7 +2748,7 @@ end
 
 function FullCache:OnMiss(fn:(key)->())
 	if self._destroyed then
-		Debugger:Throw("error", "OnMiss", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "OnMiss", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	return self._missSignal:Connect(fn)
@@ -2756,7 +2756,7 @@ end
 
 function FullCache:OnExpire(fn:(key, value)->())
 	if self._destroyed then
-		Debugger:Throw("error", "OnExpire", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "OnExpire", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	return self._expireSignal:Connect(fn)
@@ -2764,7 +2764,7 @@ end
 
 function FullCache:OnMemoryChanged(fn:(info: TypeDef.MemoryChangeInfo<T>)->()):number
 	if self._destroyed then
-		Debugger:Throw("error", "OnMemoryChanged", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "OnMemoryChanged", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	return self._memorySignal:Connect(fn)
@@ -2774,13 +2774,13 @@ end
 
 function FullCache:ResetMetrics()
 	if self._destroyed then
-		Debugger:Throw("error", "ResetMetrics", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "ResetMetrics", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	self._mutex:lock()
 	local success, result = pcall(function()
 		if self._readOnly then
-			Debugger:Throw("warn", "ResetMetrics", "Cache is in read-only mode; operation ignored.")
+			Debugger:Log("warn", "ResetMetrics", "Cache is in read-only mode; operation ignored.")
 			return
 		end
 		self._metrics.hits = 0
@@ -2799,7 +2799,7 @@ function FullCache:ResetMetrics()
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "ResetMetrics", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "ResetMetrics", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -2807,7 +2807,7 @@ end
 
 function FullCache:GetStats():{T}
 	if self._destroyed then
-		Debugger:Throw("error", "GetStats", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "GetStats", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	local uptime = self:_getTime() - self._metrics.startTime
@@ -2826,11 +2826,11 @@ end
 
 function FullCache:RemoveByPattern(patOrFn:string|{string}|((key:string|any) -> boolean))
 	if self._destroyed then
-		Debugger:Throw("error", "RemoveByPattern", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "RemoveByPattern", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "RemoveByPattern", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "RemoveByPattern", "Cache is in read-only mode; operation ignored.")
 		return 0
 	end
 	self._mutex:lock()
@@ -2857,7 +2857,7 @@ function FullCache:RemoveByPattern(patOrFn:string|{string}|((key:string|any) -> 
 				toRemove = _findKeysByGlobIterative(self._keyTrie, patOrFn)
 			else
 				-- Fallback for non-glob string patterns to slower iteration
-				Debugger:Throw("warn", "RemoveByPattern", "Complex pattern detected. Falling back to slower iteration method. For high performance, use glob patterns with '*' (e.g. 'user:*' or 'user:*:config').")
+				Debugger:Log("warn", "RemoveByPattern", "Complex pattern detected. Falling back to slower iteration method. For high performance, use glob patterns with '*' (e.g. 'user:*' or 'user:*:config').")
 				for internalID, entry in pairs(self._dict) do
 					local key = entry.key or internalID
 					if type(key) == "string" then
@@ -2881,7 +2881,7 @@ function FullCache:RemoveByPattern(patOrFn:string|{string}|((key:string|any) -> 
 			end
 			if hasGlobPatterns then
 				-- Trie-Based search for glob patterns
-			--	Debugger:Throw("print", "RemoveByPattern", "Glob patterns detected. Using Trie search.")
+			--	Debugger:Log("print", "RemoveByPattern", "Glob patterns detected. Using Trie search.")
 				local keysFound = {} -- Use a dictionary to prevent adding duplicate keys.
 				for _, pattern in ipairs(patterns) do
 					if type(pattern) == "string" then
@@ -2896,7 +2896,7 @@ function FullCache:RemoveByPattern(patOrFn:string|{string}|((key:string|any) -> 
 				end
 			else
 				-- Fallback to Aho-Corasick for non-glob patterns
-			--	Debugger:Throw("print", "RemoveByPattern", "No glob patterns found. Using high-performance Aho-Corasick.")
+			--	Debugger:Log("print", "RemoveByPattern", "No glob patterns found. Using high-performance Aho-Corasick.")
 				local automaton = AhoCorasick.new(patterns)
 				automaton:Build()
 				for internalID, _ in pairs(self._dict) do
@@ -2908,7 +2908,7 @@ function FullCache:RemoveByPattern(patOrFn:string|{string}|((key:string|any) -> 
 				end
 			end
 		else
-			Debugger:Throw("error", "RemoveByPattern", ("expected string, table of strings, or a function, got: %q")
+			Debugger:Log("error", "RemoveByPattern", ("expected string, table of strings, or a function, got: %q")
 				:format(patType))
 			return 0
 		end
@@ -2929,7 +2929,7 @@ function FullCache:RemoveByPattern(patOrFn:string|{string}|((key:string|any) -> 
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "RemoveByPattern", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "RemoveByPattern", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -2937,17 +2937,17 @@ end
 
 function FullCache:RemoveNamespace(prefix:string):number
 	if self._destroyed then
-		Debugger:Throw("error", "RemoveNamespace", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "RemoveNamespace", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "RemoveNamespace", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "RemoveNamespace", "Cache is in read-only mode; operation ignored.")
 		return 0
 	end
 	self._mutex:lock()
 	local success, result = pcall(function()
 		if type(prefix) ~= "string" or prefix == "" then
-			Debugger:Throw("error", "RemoveNamespace", ("expected a non-empty string for prefix, got: %s")
+			Debugger:Log("error", "RemoveNamespace", ("expected a non-empty string for prefix, got: %s")
 				:format(type(prefix)))
 			return 0
 		end
@@ -2974,7 +2974,7 @@ function FullCache:RemoveNamespace(prefix:string):number
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "RemoveNamespace", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "RemoveNamespace", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -2982,11 +2982,11 @@ end
 
 function FullCache:ManualSweep(options:{expireOnly:boolean?, enforceMemory:boolean?})
 	if self._destroyed then
-		Debugger:Throw("error", "ManualSweep", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "ManualSweep", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "ManualSweep", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "ManualSweep", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	self._mutex:lock()
@@ -3024,7 +3024,7 @@ function FullCache:ManualSweep(options:{expireOnly:boolean?, enforceMemory:boole
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "ManualSweep", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "ManualSweep", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -3032,7 +3032,7 @@ end
 
 function FullCache:Snapshot(keyOrOption:string?): TypeDef.SnapshotData<T>
 	if self._destroyed then
-		Debugger:Throw("error", "Snapshot", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Snapshot", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	local optionType = type(keyOrOption)
@@ -3104,17 +3104,17 @@ end
 
 function FullCache:Restore(snapshot:TypeDef.SnapshotData<T>)
 	if self._destroyed then
-		Debugger:Throw("error", "Restore", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Restore", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "Restore", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Restore", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	self._mutex:lock()
 	local success, result = pcall(function()
 		if not snapshot or type(snapshot) ~= "table" then
-			Debugger:Throw("error", "Restore", "Invalid or malformed snapshot provided.")
+			Debugger:Log("error", "Restore", "Invalid or malformed snapshot provided.")
 			return
 		end
 		-- Partial restore
@@ -3157,13 +3157,13 @@ function FullCache:Restore(snapshot:TypeDef.SnapshotData<T>)
 			end)
 			if not success then
 				self:_resume()
-				Debugger:Throw("error", "Restore", ("Partial restore failed: %s. Cache may be in an inconsistent state.")
+				Debugger:Log("error", "Restore", ("Partial restore failed: %s. Cache may be in an inconsistent state.")
 					:format(err))
 			end
 			return
 		end
 		if not (snapshot and snapshot.dict and snapshot.policyName) then
-			Debugger:Throw("error", "Restore", "Invalid or malformed full snapshot provided.")
+			Debugger:Log("error", "Restore", "Invalid or malformed full snapshot provided.")
 		end
 		-- Save the current state to enable rollback on failure
 		local oldState = {
@@ -3237,7 +3237,7 @@ function FullCache:Restore(snapshot:TypeDef.SnapshotData<T>)
 			if oldState._ttl then
 				oldState._ttl:start()
 			end
-			Debugger:Throw("error", "Restore", ("Restore failed and was rolled back: %s")
+			Debugger:Log("error", "Restore", ("Restore failed and was rolled back: %s")
 				:format(err))
 		end
 	end)
@@ -3252,7 +3252,7 @@ function FullCache:Restore(snapshot:TypeDef.SnapshotData<T>)
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "Restore", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Restore", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -3260,7 +3260,7 @@ end
 
 function FullCache:GetMetrics()
 	if self._destroyed then
-		Debugger:Throw("error", "GetMetrics", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "GetMetrics", "Attempt to use a destroyed cache instance.")
 		return nil
 	end
 	local uptime = self:_getTime() - self._metrics.startTime
@@ -3278,11 +3278,11 @@ end
 -- [[Atomic Operations]]
 function FullCache:Transaction(transactionFn: (cache: TypeDef.FullCache) -> any)
 	if self._destroyed then
-		Debugger:Throw("error", "Transaction", "Attempt to use a destroyed cache instance.")
+		Debugger:Log("error", "Transaction", "Attempt to use a destroyed cache instance.")
 		return
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "Transaction", "Cache is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Transaction", "Cache is in read-only mode; operation ignored.")
 		return
 	end
 	local journal = {}
@@ -3358,7 +3358,7 @@ function FullCache:Transaction(transactionFn: (cache: TypeDef.FullCache) -> any)
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "ResetMetrics", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "ResetMetrics", ("Internal failure: %s\n%s")
 			:format(tostring(results), debug.traceback(nil, 2)))
 	end
 	if type(results) == "table" and #results > 0 then

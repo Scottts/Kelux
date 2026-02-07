@@ -56,7 +56,7 @@ local DefaultConfig = {
 
 local function _debugLog(self:FullBus, method:string, message:string)
 	if self._config.EnableDebug then
-		Debugger:Throw("warn", method, message)
+		Debugger:Log("warn", method, message)
 	end
 end
 
@@ -79,7 +79,7 @@ local function _safeCall(self:FullBus, callback:Callback, eventName:string, ...:
 	local success, err = pcall(function() callback(table.unpack(args)) end)
 	if not success then
 		local errStr = tostring(err)
-		Debugger:Throw("warn","SafeCall", ("Error in subscriber for '%s':%s")
+		Debugger:Log("warn","SafeCall", ("Error in subscriber for '%s':%s")
 			:format(eventName, errStr))
 		self:_queueEvent(self._errorSignal, eventName, callback, errStr, args)
 	end
@@ -166,7 +166,7 @@ function FullBus:_serializeArgs(args:{any}):string?
 		jsonString = HttpService:JSONEncode(args)
 	end)
 	if not ok then
-		Debugger:Throw("warn", "_serializeArgs", "Failed to JSONEncode arguments: "..tostring(err))
+		Debugger:Log("warn", "_serializeArgs", "Failed to JSONEncode arguments: "..tostring(err))
 		return nil
 	end
 	local compressedString
@@ -174,7 +174,7 @@ function FullBus:_serializeArgs(args:{any}):string?
 		compressedString = LZ4.compress(jsonString)
 	end)
 	if not ok then
-		Debugger:Throw("warn", "_serializeArgs", "Failed to LZ4 compress arguments: "..tostring(compressErr))
+		Debugger:Log("warn", "_serializeArgs", "Failed to LZ4 compress arguments: "..tostring(compressErr))
 		return nil
 	end
 	return compressedString
@@ -186,7 +186,7 @@ function FullBus:_deserializeArgs(compressedString:string):{any}?
 		jsonString = LZ4.decompress(compressedString)
 	end)
 	if not ok then
-		Debugger:Throw("warn", "_deserializeArgs", "Failed to LZ4 decompress arguments: "..tostring(decompressErr))
+		Debugger:Log("warn", "_deserializeArgs", "Failed to LZ4 decompress arguments: "..tostring(decompressErr))
 		return nil
 	end
 	local args
@@ -194,7 +194,7 @@ function FullBus:_deserializeArgs(compressedString:string):{any}?
 		args = HttpService:JSONDecode(jsonString)
 	end)
 	if not ok then
-		Debugger:Throw("warn", "_deserializeArgs", "Failed to JSONDecode arguments: "..tostring(decodeErr))
+		Debugger:Log("warn", "_deserializeArgs", "Failed to JSONDecode arguments: "..tostring(decodeErr))
 		return nil
 	end
 	return args
@@ -306,11 +306,11 @@ end
 
 function FullBus:Destroy()
 	if self._readOnly then
-		Debugger:Throw("warn", "Destroy", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Destroy", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then
-		Debugger:Throw("error", "Destroy", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "Destroy", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	self:_acquireLock()
@@ -360,7 +360,7 @@ end
 
 function FullBus:CreateSubscriptionGroup():SubscriptionGroup
 	if self._destroyed then
-		Debugger:Throw("warn", "CreateSubscriptionGroup", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("warn", "CreateSubscriptionGroup", "Attempt to use a destroyed bus instance.")
 	end
 	local group:SubscriptionGroup = {
 		_handles = {},
@@ -387,19 +387,19 @@ end
 
 function FullBus:Subscribe(eventName:string, callback:Callback, options:SubscribeOptions?):DisconnectHandle
 	if self._readOnly then
-		Debugger:Throw("warn", "Subscribe", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Subscribe", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then
-		Debugger:Throw("warn", "Subscribe", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("warn", "Subscribe", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	if type(eventName) ~= "string" or eventName == "" then
-		Debugger:Throw("error", "Subscribe", "Event name must be a string")
+		Debugger:Log("error", "Subscribe", "Event name must be a string")
 		return
 	end
 	if type(callback) ~= "function" then
-		Debugger:Throw("error", "Subscribe", "Callback must be a function")
+		Debugger:Log("error", "Subscribe", "Callback must be a function")
 		return
 	end
 	local opts = options or {}
@@ -410,7 +410,7 @@ function FullBus:Subscribe(eventName:string, callback:Callback, options:Subscrib
 			self._subscribers[eventName] = {}
 		end
 		if #self._subscribers[eventName] >= self._config.MaxListenersPerEvent then
-			Debugger:Throw("warn", "Subscribe", ("Max listeners (%d) reached for event '%s'")
+			Debugger:Log("warn", "Subscribe", ("Max listeners (%d) reached for event '%s'")
 					:format(self._config.MaxListenersPerEvent,eventName))
 			return nil
 		end
@@ -447,7 +447,7 @@ function FullBus:Subscribe(eventName:string, callback:Callback, options:Subscrib
 		if stickyData and stickyData.CompressedArgs then
 			local decompressedArgs = self:_deserializeArgs(stickyData.CompressedArgs)
 			if not decompressedArgs then
-				Debugger:Throw("error", "Subscribe", "Failed to decompress sticky event: "..eventName)
+				Debugger:Log("error", "Subscribe", "Failed to decompress sticky event: "..eventName)
 				return result
 			end
 			local callFunc = function()
@@ -463,14 +463,14 @@ function FullBus:Subscribe(eventName:string, callback:Callback, options:Subscrib
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "Subscribe", "Internal failure:"..tostring(result))
+		Debugger:Log("error", "Subscribe", "Internal failure:"..tostring(result))
 	end
 	return result
 end
 
 function FullBus:SubscribeOnce(eventName:string, callback:Callback, options:SubscribeOptions?):DisconnectHandle
 	if self._readOnly then
-		Debugger:Throw("warn", "SubscribeOnce", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "SubscribeOnce", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	local opts = options or {}
@@ -480,11 +480,11 @@ end
 
 function FullBus:SubscribeByPrefix(prefix:string, callback:Callback, options:SubscribeOptions?):DisconnectHandle
 	if self._readOnly then
-		Debugger:Throw("warn", "SubscribeByPrefix", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "SubscribeByPrefix", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then
-		Debugger:Throw("warn", "SubscribeByPrefix", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("warn", "SubscribeByPrefix", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	local opts = options or {}
@@ -538,11 +538,11 @@ end
 
 function FullBus:SubscribeTimeRange(eventName:string, low:number, high:number, callback:Callback, options:SubscribeOptions?):DisconnectHandle
 	if self._readOnly then
-		Debugger:Throw("warn", "SubscribeTimeRange", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "SubscribeTimeRange", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then
-		Debugger:Throw("warn", "SubscribeTimeRange", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("warn", "SubscribeTimeRange", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	local opts = options or {}
@@ -594,15 +594,15 @@ end
 
 function FullBus:SubscribeDebounced(eventName:string, waitTime:number, callback:Callback, options:SubscribeOptions?):DisconnectHandle
 	if self._readOnly then
-		Debugger:Throw("warn", "SubscribeDebounced", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "SubscribeDebounced", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then
-		Debugger:Throw("warn", "SubscribeDebounced", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("warn", "SubscribeDebounced", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	if type(waitTime) ~= "number" or waitTime <= 0 then
-		Debugger:Throw("error", "SubscribeDebounced", "waitTime must be a positive number")
+		Debugger:Log("error", "SubscribeDebounced", "waitTime must be a positive number")
 		return
 	end
 	local opts = options or {}
@@ -642,15 +642,15 @@ end
 
 function FullBus:SubscribeBatched(eventName:string, waitTime:number, callback:Callback, options:SubscribeOptions?):DisconnectHandle
 	if self._readOnly then
-		Debugger:Throw("warn", "SubscribeBatched", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "SubscribeBatched", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then
-		Debugger:Throw("warn", "SubscribeBatched", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("warn", "SubscribeBatched", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	if type(waitTime) ~= "number" or waitTime <= 0 then
-		Debugger:Throw("error", "SubscribeBatched", "waitTime must be a positive number")
+		Debugger:Log("error", "SubscribeBatched", "waitTime must be a positive number")
 		return
 	end
 	local opts = options or {}
@@ -690,15 +690,15 @@ end
 
 function FullBus:SubscribeThrottled(eventName:string, waitTime:number, callback:Callback, options:SubscribeOptions?):DisconnectHandle
 	if self._readOnly then
-		Debugger:Throw("warn", "SubscribeThrottled", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "SubscribeThrottled", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then
-		Debugger:Throw("warn", "SubscribeThrottled", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("warn", "SubscribeThrottled", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	if type(waitTime) ~= "number" or waitTime <= 0 then
-		Debugger:Throw("error", "SubscribeThrottled", "waitTime must be a positive number")
+		Debugger:Log("error", "SubscribeThrottled", "waitTime must be a positive number")
 		return
 	end
 	local opts = options or {}
@@ -737,15 +737,15 @@ end
 
 function FullBus:SubscribeToAll(callback:Callback, options:SubscribeOptions?):DisconnectHandle
 	if self._readOnly then
-		Debugger:Throw("warn", "SubscribeToAll", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "SubscribeToAll", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then
-		Debugger:Throw("warn", "SubscribeToAll", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("warn", "SubscribeToAll", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	if type(callback) ~= "function" then
-		Debugger:Throw("error", "SubscribeToAll", "Callback must be a function")
+		Debugger:Log("error", "SubscribeToAll", "Callback must be a function")
 		return
 	end
 	local opts = options or {}
@@ -790,15 +790,15 @@ end
 
 function FullBus:CreateChildBus(prefix:string):FullBus
 	if self._readOnly then
-		Debugger:Throw("warn", "CreateChildBus", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "CreateChildBus", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then
-		Debugger:Throw("warn", "CreateChildBus", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("warn", "CreateChildBus", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	if type(prefix) ~= "string" or prefix == "" then
-		Debugger:Throw("error", "CreateChildBus", "Prefix must be a non-empty string")
+		Debugger:Log("error", "CreateChildBus", "Prefix must be a non-empty string")
 		return
 	end
 	if not prefix:match("%.?$") then
@@ -806,7 +806,7 @@ function FullBus:CreateChildBus(prefix:string):FullBus
 	end
 	local ok, childBus = pcall(FullBus.Create, self._config)
 	if not ok or not childBus then
-		Debugger:Throw("error", "CreateChildBus", "Failed to create child bus instance: "..tostring(childBus))
+		Debugger:Log("error", "CreateChildBus", "Failed to create child bus instance: "..tostring(childBus))
 		return
 	end
 	childBus:AddMiddleware(function(eventName:string, ...:any)
@@ -822,15 +822,15 @@ end
 
 function FullBus:Reply(eventName:string, callback:Callback, options:SubscribeOptions?):DisconnectHandle
 	if self._readOnly then
-		Debugger:Throw("warn", "Reply", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Reply", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then
-		Debugger:Throw("warn", "Reply", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("warn", "Reply", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	if type(callback) ~= "function" then
-		Debugger:Throw("error", "Reply", "Callback must be a function")
+		Debugger:Log("error", "Reply", "Callback must be a function")
 		return
 	end
 	local function wrapperCallback(...)
@@ -859,7 +859,7 @@ end
 
 function FullBus:Request(eventName:string, timeout:number?, ...:any): (boolean, ...any)
 	if self._destroyed then
-		Debugger:Throw("error", "Request", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "Request", "Attempt to use a destroyed bus instance.")
 		return false, "Bus destroyed"
 	end
 	self:_acquireLock()
@@ -893,7 +893,7 @@ end
 
 function FullBus:Disconnect(connection:Connection)
 	if self._readOnly then
-		Debugger:Throw("warn", "Disconnect", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Disconnect", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if not connection or 
@@ -912,19 +912,19 @@ end
 
 function FullBus:Unsubscribe(eventName:string, callback:Callback)
 	if self._readOnly then
-		Debugger:Throw("warn", "Unsubscribe", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Unsubscribe", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then
-		Debugger:Throw("warn", "Unsubscribe", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("warn", "Unsubscribe", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	if type(eventName) ~= "string" or eventName == "" then
-		Debugger:Throw("error", "Unsubscribe", "Event name must be a non-empty string")
+		Debugger:Log("error", "Unsubscribe", "Event name must be a non-empty string")
 		return
 	end
 	if type(callback) ~= "function" then
-		Debugger:Throw("error", "Unsubscribe", "Callback must be a function")
+		Debugger:Log("error", "Unsubscribe", "Callback must be a function")
 		return
 	end
 	self:_acquireLock()
@@ -1101,7 +1101,7 @@ function FullBus:_gatherConnections(eventName:string, ...:any):({any}, {Connecti
 	end)
 	self:_releaseLock()
 	if not ok then
-		Debugger:Throw("error", "Publish(Gather)", "Internal failure:"..tostring(err))
+		Debugger:Log("error", "Publish(Gather)", "Internal failure:"..tostring(err))
 		return nil, nil
 	end
 	return connectionsToCall, args
@@ -1109,11 +1109,11 @@ end
 
 function FullBus:WaitFor(eventName:string, timeout:number?): (boolean, ...any)
 	if self._destroyed then
-		Debugger:Throw("error", "WaitFor", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "WaitFor", "Attempt to use a destroyed bus instance.")
 		return false
 	end
 	if type(eventName) ~= "string" or eventName == "" then
-		Debugger:Throw("error", "WaitFor", "Event name must be a string")
+		Debugger:Log("error", "WaitFor", "Event name must be a string")
 		return false
 	end
 	local eventSignal = Signal.new()
@@ -1159,15 +1159,15 @@ end
 
 function FullBus:Publish(eventName:string, ...:any)
 	if self._readOnly then
-		Debugger:Throw("warn", "Publish", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Publish", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then
-		Debugger:Throw("error", "Publish", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "Publish", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	if type(eventName) ~= "string" then
-		Debugger:Throw("error", "Publish", "Event name must be a string")
+		Debugger:Log("error", "Publish", "Event name must be a string")
 		return
 	end
 	local connectionsToCall, args = self:_gatherConnections(eventName, ...)
@@ -1193,15 +1193,15 @@ end
 
 function FullBus:PublishAsync(eventName:string, ...:any)
 	if self._readOnly then
-		Debugger:Throw("warn", "PublishAsync", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "PublishAsync", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then
-		Debugger:Throw("error", "PublishAsync", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "PublishAsync", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	if type(eventName) ~= "string" then
-		Debugger:Throw("error", "PublishAsync", "Event name must be a string")
+		Debugger:Log("error", "PublishAsync", "Event name must be a string")
 		return
 	end
 	local connectionsToCall, args = self:_gatherConnections(eventName, ...)
@@ -1229,15 +1229,15 @@ end
 
 function FullBus:PublishSticky(eventName:string, ...:any)
 	if self._readOnly then
-		Debugger:Throw("warn", "PublishSticky", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "PublishSticky", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then
-		Debugger:Throw("error", "PublishSticky", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "PublishSticky", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	if type(eventName) ~= "string" then
-		Debugger:Throw("error", "PublishSticky", "Event name must be a string")
+		Debugger:Log("error", "PublishSticky", "Event name must be a string")
 		return
 	end
 	self:Publish(eventName, ...)
@@ -1254,15 +1254,15 @@ end
 
 function FullBus:RemoveSticky(eventName:string)
 	if self._readOnly then
-		Debugger:Throw("warn", "RemoveSticky", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "RemoveSticky", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then
-		Debugger:Throw("error", "RemoveSticky", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "RemoveSticky", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	if type(eventName) ~= "string" or eventName == "" then
-		Debugger:Throw("error", "RemoveSticky", "Event name must be a non-empty string")
+		Debugger:Log("error", "RemoveSticky", "Event name must be a non-empty string")
 		return
 	end
 	self:_acquireLock()
@@ -1276,11 +1276,11 @@ end
 
 function FullBus:PublishByPrefix(eventName:string, ...:any)
 	if self._readOnly then
-		Debugger:Throw("warn", "PublishByPrefix", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "PublishByPrefix", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then
-		Debugger:Throw("error", "PublishByPrefix", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "PublishByPrefix", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	local args = {...}
@@ -1328,15 +1328,15 @@ end
 
 function FullBus:AddMiddleware(middlewareFunc:Middleware)
 	if self._readOnly then
-		Debugger:Throw("warn", "AddMiddleware", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "AddMiddleware", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then
-		Debugger:Throw("error", "AddMiddleware", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "AddMiddleware", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	if type(middlewareFunc) ~= "function" then
-		Debugger:Throw("error", "AddMiddleware", "Middleware must be a function")
+		Debugger:Log("error", "AddMiddleware", "Middleware must be a function")
 		return
 	end
 	self:_acquireLock()
@@ -1347,15 +1347,15 @@ end
 
 function FullBus:RemoveMiddleware(middlewareFunc:Middleware)
 	if self._readOnly then
-		Debugger:Throw("warn", "RemoveMiddleware", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "RemoveMiddleware", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then
-		Debugger:Throw("error", "RemoveMiddleware", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "RemoveMiddleware", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	if type(middlewareFunc) ~= "function" then
-		Debugger:Throw("error", "RemoveMiddleware", "Middleware must be a function")
+		Debugger:Log("error", "RemoveMiddleware", "Middleware must be a function")
 		return
 	end
 	self:_acquireLock()
@@ -1377,11 +1377,11 @@ end
 
 function FullBus:SetEventRateLimit(eventName:string, refillRate:number, capacity:number)
 	if self._readOnly then
-		Debugger:Throw("warn", "SetEventRateLimit", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "SetEventRateLimit", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then
-		Debugger:Throw("error", "SetEventRateLimit", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "SetEventRateLimit", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	self:_acquireLock()
@@ -1409,11 +1409,11 @@ end
 
 function FullBus:Clear(eventName:string)
 	if self._readOnly then
-		Debugger:Throw("warn", "Clear", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Clear", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then
-		Debugger:Throw("error", "Clear", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "Clear", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	self:_acquireLock()
@@ -1442,11 +1442,11 @@ end
 
 function FullBus:ClearAll()
 	if self._readOnly then
-		Debugger:Throw("warn", "ClearAll", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "ClearAll", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then
-		Debugger:Throw("error", "ClearAll", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "ClearAll", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	self:_acquireLock()
@@ -1456,7 +1456,7 @@ end
 
 function FullBus:GetStats():BusStats
 	if self._destroyed then
-		Debugger:Throw("error", "GetStats", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "GetStats", "Attempt to use a destroyed bus instance.")
 		return {Destroyed = true}
 	end
 	self:_acquireLock()
@@ -1545,7 +1545,7 @@ end
 
 function FullBus:GetEventHistoryRange(startTime:number, endTime:number):{any}
 	if self._destroyed then
-		Debugger:Throw("error", "GetEventHistoryRange", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "GetEventHistoryRange", "Attempt to use a destroyed bus instance.")
 		return {}
 	end
 	self:_acquireLock()
@@ -1560,7 +1560,7 @@ function FullBus:GetEventHistoryRange(startTime:number, endTime:number):{any}
 					value = {Name = entry.value.Name, Args = decompressedArgs}
 				})
 			else
-				Debugger:Throw("warn", "GetEventHistoryRange", "Failed to decompress history entry.")
+				Debugger:Log("warn", "GetEventHistoryRange", "Failed to decompress history entry.")
 			end
 		end
 	end
@@ -1591,7 +1591,7 @@ end
 
 function FullBus:BuildAuditTree():string?
 	if self._readOnly then
-		Debugger:Throw("warn", "Clear", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Clear", "Bus is in read-only mode; operation ignored.")
 		return false
 	end
 	if self._destroyed then return nil end
@@ -1633,7 +1633,7 @@ end
 
 function FullBus:SetDebug(enabled:boolean)
 	if self._destroyed then
-		Debugger:Throw("error", "SetDebug", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "SetDebug", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	self:_acquireLock()
@@ -1644,7 +1644,7 @@ end
 
 function FullBus:ReadOnly(state:boolean)
 	if self._destroyed then
-		Debugger:Throw("error", "ReadOnly", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "ReadOnly", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	self:_acquireLock()
@@ -1658,13 +1658,13 @@ function FullBus:ReadOnly(state:boolean)
 				_debugLog(self, "ReadOnly", "Read-only mode disabled.")
 			end
 		else
-			Debugger:Throw("error", "ReadOnly", ("Expected state to be a boolean value, got type: %q")
+			Debugger:Log("error", "ReadOnly", ("Expected state to be a boolean value, got type: %q")
 				:format(type(state)))
 		end
 	end)
 	self:_releaseLock()
 	if not success then
-		Debugger:Throw("error", "ReadOnly", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "ReadOnly", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 end
@@ -1673,7 +1673,7 @@ end
 
 function FullBus:OnPublish(fn: (eventName:string, args:{any})->())
 	if self._destroyed then
-		Debugger:Throw("error", "OnPublish", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "OnPublish", "Attempt to use a destroyed bus instance.")
 		return nil
 	end
 	return self._publishSignal:Connect(fn)
@@ -1699,7 +1699,7 @@ function FullBus:DisconnectSignal(signalInstance: any, connectionId: number)
 	if signalInstance and type(signalInstance.Disconnect) == "function" then
 		pcall(signalInstance.Disconnect, signalInstance, connectionId)
 	else
-		Debugger:Throw("warn", "DisconnectSignal", "Invalid signal instance provided.")
+		Debugger:Log("warn", "DisconnectSignal", "Invalid signal instance provided.")
 	end
 end
 
@@ -1707,7 +1707,7 @@ end
 
 function FullBus:Keys(): {string}
 	if self._destroyed then
-		Debugger:Throw("error", "Keys", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "Keys", "Attempt to use a destroyed bus instance.")
 		return {}
 	end
 	self:_acquireLock()
@@ -1777,11 +1777,11 @@ end
 
 function FullBus:Subscribers(eventName: string): {SubscriberInfo}
 	if self._destroyed then
-		Debugger:Throw("error", "Subscribers", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "Subscribers", "Attempt to use a destroyed bus instance.")
 		return {}
 	end
 	if type(eventName) ~= "string" then
-		Debugger:Throw("error", "Subscribers", "Event name must be a string.")
+		Debugger:Log("error", "Subscribers", "Event name must be a string.")
 		return {}
 	end
 	self:_acquireLock()
@@ -1809,11 +1809,11 @@ end
 
 function FullBus:ForEach(fn: (eventName: string, connection: Connection) -> ())
 	if self._destroyed then
-		Debugger:Throw("error", "ForEach", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "ForEach", "Attempt to use a destroyed bus instance.")
 		return
 	end
 	if type(fn) ~= "function" then
-		Debugger:Throw("error", "ForEach", "Provided argument must be a function.")
+		Debugger:Log("error", "ForEach", "Provided argument must be a function.")
 		return
 	end
 	self:_acquireLock()
@@ -1824,7 +1824,7 @@ function FullBus:ForEach(fn: (eventName: string, connection: Connection) -> ())
 					if connection.Connected then
 						local callSuccess, callErr = pcall(fn, eventName, connection)
 						if not callSuccess then
-							Debugger:Throw("warn", "ForEach", ("Error during callback execution for event '%s': %s")
+							Debugger:Log("warn", "ForEach", ("Error during callback execution for event '%s': %s")
 								:format(eventName, tostring(callErr)))
 						end
 					end
@@ -1834,22 +1834,22 @@ function FullBus:ForEach(fn: (eventName: string, connection: Connection) -> ())
 	end)
 	self:_releaseLock()
 	if not success then
-		Debugger:Throw("error", "ForEach", ("Internal failure during iteration: %s\n%s")
+		Debugger:Log("error", "ForEach", ("Internal failure during iteration: %s\n%s")
 			:format(tostring(err), debug.traceback(nil, 2)))
 	end
 end
 
 function FullBus:Transaction(transactionFn: (txBus: FullBus) -> any): (boolean, any?)
 	if self._destroyed then
-		Debugger:Throw("error", "Transaction", "Attempt to use a destroyed bus instance.")
+		Debugger:Log("error", "Transaction", "Attempt to use a destroyed bus instance.")
 		return false, "Bus destroyed"
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "Transaction", "Bus is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Transaction", "Bus is in read-only mode; operation ignored.")
 		return false, "Read-only mode"
 	end
 	if type(transactionFn) ~= "function" then
-		Debugger:Throw("error", "Transaction", "Provided argument must be a function.")
+		Debugger:Log("error", "Transaction", "Provided argument must be a function.")
 		return false, "Invalid argument: function required"
 	end
 	local journal = {}
@@ -1938,7 +1938,7 @@ function FullBus:Transaction(transactionFn: (txBus: FullBus) -> any): (boolean, 
 							if actualConn then
 								createdConnections[entry.index] = actualConn
 							else
-								Debugger:Throw("warn", "TransactionApply", ("Could not find connection object after subscribing for journal index %d")
+								Debugger:Log("warn", "TransactionApply", ("Could not find connection object after subscribing for journal index %d")
 									:format(entry.index))
 							end
 						end
@@ -1955,7 +1955,7 @@ function FullBus:Transaction(transactionFn: (txBus: FullBus) -> any): (boolean, 
 					if targetConn and targetConn.Connected then
 						_disconnectInternal(targetConn)
 					else
-						Debugger:Throw("warn", "TransactionApply", ("Could not disconnect pending connection for journal index %d - Connection invalid or already disconnected")
+						Debugger:Log("warn", "TransactionApply", ("Could not disconnect pending connection for journal index %d - Connection invalid or already disconnected")
 							:format(entry.subscribeIndex or -1))
 					end
 				elseif not (entry.op:match("^Subscribe") or entry.op == "Reply") and method then
@@ -1969,12 +1969,12 @@ function FullBus:Transaction(transactionFn: (txBus: FullBus) -> any): (boolean, 
 		applySuccess = applyOk
 		applyError = applyErr
 	else
-		Debugger:Throw("warn", "Transaction", ("Transaction function failed: %s. Operations discarded.")
+		Debugger:Log("warn", "Transaction", ("Transaction function failed: %s. Operations discarded.")
 			:format(tostring(txResults)))
 		applySuccess = false
 	end
 	if txSuccess and not applySuccess then
-		Debugger:Throw("error", "Transaction", ("Failed applying transaction journal: %s. Bus state might be inconsistent.")
+		Debugger:Log("error", "Transaction", ("Failed applying transaction journal: %s. Bus state might be inconsistent.")
 			:format(tostring(applyError)))
 	end
 	if #self._eventQueue > 0 then

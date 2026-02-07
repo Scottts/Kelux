@@ -144,12 +144,12 @@ function FullPool.new(instanceType: string, config: TypeDef.PoolConfig?)
 		finalInstanceType = config.templateInstance.ClassName
 	end
 	if typeof(finalInstanceType) ~= "string" then
-		Debugger:Throw("error", "new", "Could not determine a valid instanceType from the provided config.")
+		Debugger:Log("error", "new", "Could not determine a valid instanceType from the provided config.")
 	end
 	instanceType = finalInstanceType
 	local success, _ = pcall(Instance.new, instanceType)
 	if not success then
-		Debugger:Throw("error", "new", ("Invalid instanceType: %q")
+		Debugger:Log("error", "new", ("Invalid instanceType: %q")
 			:format(instanceType))
 	end
 	config = config or {}
@@ -284,7 +284,7 @@ end
 
 function FullPool.Create<T>(poolName: string, config: TypeDef.PoolConfig?):TypeDef.FullPool<T>
 	if typeof(poolName) ~= "string" then
-		Debugger:Throw("error", "Create", "poolName must be a string")
+		Debugger:Log("error", "Create", "poolName must be a string")
 	end
 	Pools._mutex:lock()
 	config = config or {}
@@ -301,7 +301,7 @@ function FullPool.Create<T>(poolName: string, config: TypeDef.PoolConfig?):TypeD
 	end
 	if not config.instanceType and not config.templateInstance then
 		Pools._mutex:unlock()
-		Debugger:Throw("error", "Create", "Either 'instanceType' or 'templateInstance' must be provided in the config for a new pool.")
+		Debugger:Log("error", "Create", "Either 'instanceType' or 'templateInstance' must be provided in the config for a new pool.")
 	end
 	local newPool = FullPool.new(config.instanceType, config)
 	Pools._map[poolName] = newPool
@@ -351,15 +351,15 @@ end
 
 function FullPool:Get(priority: TypeDef.PoolPriority?, debugContext: any?): Instance?
 	if self._getRateLimiter and not self._getRateLimiter:consume() then
-		Debugger:Throw("warn", "Get", ("Get() call rate-limited. Pool: %s")
+		Debugger:Log("warn", "Get", ("Get() call rate-limited. Pool: %s")
 			:format(self._name))
 		return nil
 	end
 	if self._isDestroyed then
-		Debugger:Throw("error", "Get", "Pool is destroyed.")
+		Debugger:Log("error", "Get", "Pool is destroyed.")
 	end
 	if self._isReadOnly then
-		Debugger:Throw("error", "Get", "Pool is in read-only mode; operation ignored.")
+		Debugger:Log("error", "Get", "Pool is in read-only mode; operation ignored.")
 	end
 	priority = priority or "normal"
 	self._lock:lock()
@@ -413,17 +413,17 @@ end
 
 function FullPool:Return(instance: Instance)
 	if self._isDestroyed then
-		Debugger:Throw("error", "Return", "Pool is destroyed.")
+		Debugger:Log("error", "Return", "Pool is destroyed.")
 		return
 	end
 	if not instance then
-		Debugger:Throw("warn", "Return", "Attempted to return a nil instance to the pool.")
+		Debugger:Log("warn", "Return", "Attempted to return a nil instance to the pool.")
 		return
 	end
 	self._lock:lock()
 	local meta = self._activeInstances[instance]
 	if not meta then
-		Debugger:Throw("warn", "Return", ("Attempted to return instance %s which is not active. It may have been returned already or was never properly leased.")
+		Debugger:Log("warn", "Return", ("Attempted to return instance %s which is not active. It may have been returned already or was never properly leased.")
 			:format(tostring(instance)))
 		self._lock:unlock()
 		return
@@ -440,7 +440,7 @@ function FullPool:Return(instance: Instance)
 	self._stats.returns += 1
 	local success, err = pcall(self._cleanupInstance, self, instance)
 	if not success then
-		Debugger:Throw("warn", "Return", ("Cleanup failed for instance %s: %s. Destroying instance.")
+		Debugger:Log("warn", "Return", ("Cleanup failed for instance %s: %s. Destroying instance.")
 			:format(tostring(instance), tostring(err)))
 		self:_destroyInstance(instance, "CleanupFailed")
 		self._lock:unlock()
@@ -462,11 +462,11 @@ end
 
 function FullPool:ReturnBy(predicate: (instance: Instance) -> boolean):number
 	if self._isDestroyed then 
-		Debugger:Throw("error", "ReturnBy", "Pool is destroyed.") 
+		Debugger:Log("error", "ReturnBy", "Pool is destroyed.") 
 		return 0
 	end
 	if typeof(predicate) ~= "function" then
-		Debugger:Throw("warn", "ReturnBy", ("Expected a function predicate, got: %s")
+		Debugger:Log("warn", "ReturnBy", ("Expected a function predicate, got: %s")
 			:format(typeof(predicate)))
 		return 0
 	end
@@ -484,13 +484,13 @@ end
 
 function FullPool:GetWithLease(ttl: number, priority: PoolPriority?, debugContext: any?): Instance?
 	if self._isDestroyed then 
-		Debugger:Throw("error", "GetWithLease", "Pool is destroyed.") 
+		Debugger:Log("error", "GetWithLease", "Pool is destroyed.") 
 	end
 	if self._isReadOnly then 
-		Debugger:Throw("error", "GetWithLease", "Pool is in read-only mode; operation ignored.") 
+		Debugger:Log("error", "GetWithLease", "Pool is in read-only mode; operation ignored.") 
 	end
 	if not (typeof(ttl) == "number" and ttl > 0) then
-		Debugger:Throw("error", "GetWithLease", "ttl must be a positive number")
+		Debugger:Log("error", "GetWithLease", "ttl must be a positive number")
 	end
 	local instance = self:Get(priority, debugContext)
 	if not instance then
@@ -507,15 +507,15 @@ end
 
 function FullPool:TryGet(): Instance?
 	if self._getRateLimiter and not self._getRateLimiter:consume() then
-		Debugger:Throw("warn", "TryGet", ("TryGet() call rate-limited. Pool: %s")
+		Debugger:Log("warn", "TryGet", ("TryGet() call rate-limited. Pool: %s")
 			:format(self._name))
 		return nil
 	end
 	if self._isDestroyed then 
-		Debugger:Throw("error", "TryGet", "Pool is destroyed.") 
+		Debugger:Log("error", "TryGet", "Pool is destroyed.") 
 	end
 	if self._isReadOnly then
-		Debugger:Throw("warn", "TryGet", "Pool is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "TryGet", "Pool is in read-only mode; operation ignored.")
 	end
 	self._lock:lock()
 	local instance: Instance?
@@ -548,13 +548,13 @@ end
 
 function FullPool:Prefetch(count: number, onComplete: (() -> ())?)
 	if self._isDestroyed then 
-		Debugger:Throw("error", "Prefetch", "Pool is destroyed.") 
+		Debugger:Log("error", "Prefetch", "Pool is destroyed.") 
 	end
 	if self._isReadOnly then
-		Debugger:Throw("warn", "Prefetch", "Pool is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Prefetch", "Pool is in read-only mode; operation ignored.")
 	end
 	if not (typeof(count) == "number" and count > 0) then
-		Debugger:Throw("error", "Prefetch", "prefetch count must be a positive number")
+		Debugger:Log("error", "Prefetch", "prefetch count must be a positive number")
 	end
 	task.spawn(function()
 		local success, err = pcall(function()
@@ -572,7 +572,7 @@ function FullPool:Prefetch(count: number, onComplete: (() -> ())?)
 			end
 		end)
 		if not success then
-			Debugger:Throw("warn", "Prefetch", ("Prefetch coroutine failed: %s")
+			Debugger:Log("warn", "Prefetch", ("Prefetch coroutine failed: %s")
 				:format(tostring(err)))
 		end
 		if onComplete then
@@ -583,13 +583,13 @@ end
 
 function FullPool:BulkGet(count: number, priority: TypeDef.PoolPriority?): {Instance}
 	if self._isDestroyed then
-		Debugger:Throw("error", "BulkGet", "Pool is destroyed.")
+		Debugger:Log("error", "BulkGet", "Pool is destroyed.")
 	end
 	if self._isReadOnly then
-		Debugger:Throw("error", "BulkGet", "Pool is in read-only mode; operation ignored.")
+		Debugger:Log("error", "BulkGet", "Pool is in read-only mode; operation ignored.")
 	end
 	if not (typeof(count) == "number" and count > 0) then
-		Debugger:Throw("error", "BulkGet", "BulkGet count must be a positive number")
+		Debugger:Log("error", "BulkGet", "BulkGet count must be a positive number")
 	end
 	local instances = {}
 	for i = 1, count do
@@ -604,7 +604,7 @@ end
 
 function FullPool:BulkReturn(instances:{Instance})
 	if self._isDestroyed then
-		Debugger:Throw("error", "BulkReturn", "Pool is destroyed.")
+		Debugger:Log("error", "BulkReturn", "Pool is destroyed.")
 		return
 	end
 	if self._isDestroyed then
@@ -627,7 +627,7 @@ function FullPool:BulkReturn(instances:{Instance})
 			self._activeInstances[instance] = nil
 			local success, err = pcall(self._cleanupInstance, self, instance)
 			if not success then
-				Debugger:Throw("warn", "BulkReturn", ("Cleanup failed for instance %s: %s. Destroying instance.")
+				Debugger:Log("warn", "BulkReturn", ("Cleanup failed for instance %s: %s. Destroying instance.")
 					:format(tostring(instance), tostring(err)))
 				self:_destroyInstance(instance, "CleanupFailed")
 			else
@@ -654,18 +654,18 @@ end
 
 function FullPool:Resize(newMaxSize: number)
 	if self._isDestroyed then 
-		Debugger:Throw("error", "Resize", "Pool is destroyed.") 
+		Debugger:Log("error", "Resize", "Pool is destroyed.") 
 	end
 	if self._isReadOnly then 
-		Debugger:Throw("error", "Resize", "Pool is in read-only mode; operation ignored.") 
+		Debugger:Log("error", "Resize", "Pool is in read-only mode; operation ignored.") 
 	end
 	if not (typeof(newMaxSize) == "number" and newMaxSize > 0) then
-		Debugger:Throw("error","Resize", ("expected newMaxSize to be a positive number, got: %q %s")
+		Debugger:Log("error","Resize", ("expected newMaxSize to be a positive number, got: %q %s")
 			:format(typeof(newMaxSize),tostring(newMaxSize)))
 	end
 	local activeCount = _getActiveCount(self._activeInstances)
 	if newMaxSize < activeCount then
-		Debugger:Throw("error", "Resize", ("Cannot resize pool to %d, which is smaller than the current number of active instances (%d).")
+		Debugger:Log("error", "Resize", ("Cannot resize pool to %d, which is smaller than the current number of active instances (%d).")
 			:format(newMaxSize, activeCount))
 		return
 	end
@@ -682,10 +682,10 @@ end
 
 function FullPool:ReadOnly(state: boolean)
 	if self._isDestroyed then
-		Debugger:Throw("error", "ReadOnly", "Pool is destroyed.")
+		Debugger:Log("error", "ReadOnly", "Pool is destroyed.")
 	end
 	if typeof(state) ~= "boolean" then
-		Debugger:Throw("error", "ReadOnly", ("Expected state to be a boolean value, got type: %q")
+		Debugger:Log("error", "ReadOnly", ("Expected state to be a boolean value, got type: %q")
 			:format(typeof(state)))
 	end
 	self._isReadOnly = state
@@ -698,7 +698,7 @@ end
 
 function FullPool:Pause()
 	if self._isDestroyed then
-		Debugger:Throw("error", "Pause", "Pool is destroyed.")
+		Debugger:Log("error", "Pause", "Pool is destroyed.")
 		return
 	end
 	if self._isPaused then return end
@@ -707,7 +707,7 @@ end
 
 function FullPool:Resume()
 	if self._isDestroyed then
-		Debugger:Throw("error", "Resume", "Pool is destroyed.")
+		Debugger:Log("error", "Resume", "Pool is destroyed.")
 		return
 	end
 	if not self._isPaused then 
@@ -718,7 +718,7 @@ end
 
 function FullPool:Touch(instance: Instance, timeBoost: number?): boolean
 	if self._isDestroyed then
-		Debugger:Throw("error", "Return", "Pool is destroyed.")
+		Debugger:Log("error", "Return", "Pool is destroyed.")
 		return
 	end
 	if self._isDestroyed or self._isReadOnly then 
@@ -749,11 +749,11 @@ end
 
 function FullPool:Pin(instance: Instance): boolean
 	if self._isDestroyed then
-		Debugger:Throw("error", "Return", "Pool is destroyed.")
+		Debugger:Log("error", "Return", "Pool is destroyed.")
 		return
 	end
 	if self._isReadOnly then
-		Debugger:Throw("error", "Pin", "Pool is in read-only mode; operation ignored.")
+		Debugger:Log("error", "Pin", "Pool is in read-only mode; operation ignored.")
 	end
 	local metadata = self._activeInstances[instance]
 	if not metadata or metadata.isPinned then
@@ -770,11 +770,11 @@ end
 
 function FullPool:Unpin(instance: Instance): boolean
 	if self._isDestroyed then
-		Debugger:Throw("error", "Return", "Pool is destroyed.")
+		Debugger:Log("error", "Return", "Pool is destroyed.")
 		return
 	end
 	if self._isReadOnly then
-		Debugger:Throw("error", "Unpin", "Pool is in read-only mode; operation ignored.")
+		Debugger:Log("error", "Unpin", "Pool is in read-only mode; operation ignored.")
 	end
 	local metadata = self._activeInstances[instance]
 	if not metadata or not metadata.isPinned then
@@ -790,7 +790,7 @@ end
 
 function FullPool:GetStats(): TypeDef.PoolStats
 	if self._isDestroyed then 
-		Debugger:Throw("error", "GetStats", "Pool is destroyed.") 
+		Debugger:Log("error", "GetStats", "Pool is destroyed.") 
 	end
 	local totalGets = self._stats.gets
 	local totalHits = self._stats.hits
@@ -820,7 +820,7 @@ end
 
 function FullPool:PeekAllActive(): {Instance}
 	if self._isDestroyed then 
-		Debugger:Throw("warn", "Shrink", "Pool is destroyed.") 
+		Debugger:Log("warn", "Shrink", "Pool is destroyed.") 
 		return {}
 	end
 	local active = {}
@@ -832,7 +832,7 @@ end
 
 function FullPool:PeekAllPooled(): {Instance}
 	if self._isDestroyed then 
-		Debugger:Throw("warn", "Shrink", "Pool is destroyed.")
+		Debugger:Log("warn", "Shrink", "Pool is destroyed.")
 		return {}
 	end
 	local pooled = {}
@@ -844,11 +844,11 @@ end
 
 function FullPool:Shrink(targetSize: number?)
 	if self._isDestroyed then 
-		Debugger:Throw("error", "Shrink", "Pool is destroyed.") 
+		Debugger:Log("error", "Shrink", "Pool is destroyed.") 
 	end
 	targetSize = targetSize or self._initialSize
 	if typeof(targetSize) ~= "number" then
-		Debugger:Throw("error", "Shrink", "targetSize must be a number")
+		Debugger:Log("error", "Shrink", "targetSize must be a number")
 	end
 	while #self._idleInstances > targetSize do
 		local instanceToDestroy = table.remove(self._idleInstances)
@@ -862,10 +862,10 @@ end
 
 function FullPool:ManualSweep(options: {expireLeasesOnly: boolean?})
 	if self._isDestroyed then 
-		Debugger:Throw("error", "ManualSweep", "Pool is destroyed.")
+		Debugger:Log("error", "ManualSweep", "Pool is destroyed.")
 	end
 	if self._isReadOnly then
-		Debugger:Throw("warn", "ManualSweep", "Pool is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "ManualSweep", "Pool is in read-only mode; operation ignored.")
 		return 
 	end
 	options = options or {}
@@ -877,7 +877,7 @@ end
 
 function FullPool:Destroy()
 	if self._isDestroyed then 
-		Debugger:Throw("error", "Destroy", "Pool is destroyed.")
+		Debugger:Log("error", "Destroy", "Pool is destroyed.")
 	end
 	self._isDestroyed = true
 	if self._leaseServiceConnection then
@@ -916,7 +916,7 @@ end
 
 function FullPool:Snapshot(includeDescendants: boolean?): string?
 	if self._isDestroyed then
-		Debugger:Throw("error", "Snapshot", "Pool is destroyed.")
+		Debugger:Log("error", "Snapshot", "Pool is destroyed.")
 		return nil
 	end
 	local shouldIncludeDescendants = includeDescendants or false
@@ -935,7 +935,7 @@ function FullPool:Snapshot(includeDescendants: boolean?): string?
 		if templateSuccess and templateSerialized then
 			snapshotData.templateData = templateSerialized
 		else
-			Debugger:Throw("warn", "Snapshot", ("Failed to serialize template instance %s: %s")
+			Debugger:Log("warn", "Snapshot", ("Failed to serialize template instance %s: %s")
 				:format(tostring(self._templateInstance), tostring(templateSerialized)))
 		end
 	end
@@ -947,7 +947,7 @@ function FullPool:Snapshot(includeDescendants: boolean?): string?
 			if success and serializedData then
 				table.insert(snapshotData.serializedInstances, serializedData)
 			else
-				Debugger:Throw("warn", "Snapshot", ("Failed to serialize pooled instance %s: %s")
+				Debugger:Log("warn", "Snapshot", ("Failed to serialize pooled instance %s: %s")
 					:format(tostring(instance), tostring(serializedData)))
 			end
 		end
@@ -956,7 +956,7 @@ function FullPool:Snapshot(includeDescendants: boolean?): string?
 	if encodeSuccess then
 		return jsonData
 	else
-		Debugger:Throw("error", "Snapshot", ("Failed to JSONEncode snapshot data: %s")
+		Debugger:Log("error", "Snapshot", ("Failed to JSONEncode snapshot data: %s")
 			:format(tostring(jsonData)))
 		return nil
 	end
@@ -965,7 +965,7 @@ end
 function FullPool.FromSnapshot(snapshotString: string): TypeDef.FullPool?
 	local success, data = pcall(HttpService.JSONDecode, HttpService, snapshotString)
 	if not success or typeof(data) ~= "table" then
-		Debugger:Throw("error", "FromSnapshot", ("Invalid or corrupt snapshot string: %s")
+		Debugger:Log("error", "FromSnapshot", ("Invalid or corrupt snapshot string: %s")
 			:format(tostring(data)))
 		return nil
 	end
@@ -975,7 +975,7 @@ function FullPool.FromSnapshot(snapshotString: string): TypeDef.FullPool?
 		if templateSuccess and deserializedTemplate then
 			templateInstance = deserializedTemplate
 		else
-			Debugger:Throw("warn", "FromSnapshot", ("Failed to deserialize template instance from snapshot: %s")
+			Debugger:Log("warn", "FromSnapshot", ("Failed to deserialize template instance from snapshot: %s")
 				:format(tostring(deserializedTemplate)))
 		end
 	end
@@ -988,14 +988,14 @@ function FullPool.FromSnapshot(snapshotString: string): TypeDef.FullPool?
 		autoShrinkDelay = data.autoShrinkDelay,
 	}
 	if not config.instanceType then
-		Debugger:Throw("error", "FromSnapshot", "Could not determine instanceType from snapshot data or template.")
+		Debugger:Log("error", "FromSnapshot", "Could not determine instanceType from snapshot data or template.")
 		return nil
 	end
 	local poolName = ("Pool-FromSnapshot-%s")
 		:format(HttpService:GenerateGUID(false))
 	local newPool = FullPool.Create(poolName, config)
 	if not newPool then
-		Debugger:Throw("error", "FromSnapshot", "Failed to create new pool instance during restoration.")
+		Debugger:Log("error", "FromSnapshot", "Failed to create new pool instance during restoration.")
 		return nil
 	end
 	if data.isFullState and data.serializedInstances then
@@ -1003,7 +1003,7 @@ function FullPool.FromSnapshot(snapshotString: string): TypeDef.FullPool?
 		local restoredCount = 0
 		for _, instanceData in ipairs(data.serializedInstances) do
 			if _getActiveCount(newPool._activeInstances) + #newPool._idleInstances >= newPool._maxSize then
-				Debugger:Throw("warn", "FromSnapshot", "Reached maxSize during instance restoration. Skipping remaining instances.")
+				Debugger:Log("warn", "FromSnapshot", "Reached maxSize during instance restoration. Skipping remaining instances.")
 				break
 			end
 			local instanceSuccess, instance = pcall(Serializer.DeserializeInstance, instanceData)
@@ -1011,12 +1011,12 @@ function FullPool.FromSnapshot(snapshotString: string): TypeDef.FullPool?
 				table.insert(newPool._idleInstances, instance)
 				restoredCount += 1
 			else
-				Debugger:Throw("warn", "FromSnapshot", ("Failed to deserialize an instance from data: %s")
+				Debugger:Log("warn", "FromSnapshot", ("Failed to deserialize an instance from data: %s")
 					:format(tostring(instance)))
 			end
 		end
 		newPool:Resume()
-		Debugger:Throw("print", "FromSnapshot", ("Restored %d idle instances into pool '%s'")
+		Debugger:Log("print", "FromSnapshot", ("Restored %d idle instances into pool '%s'")
 			:format(restoredCount, poolName))
 	end
 	return newPool

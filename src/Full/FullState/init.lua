@@ -73,12 +73,12 @@ end
 local function _compressState(state: any): string?
 	local ok, json = pcall(HttpService.JSONEncode, HttpService, state)
 	if not ok then
-		Debugger:Throw("warn", "_compressState", "Failed to JSONEncode state: "..tostring(json))
+		Debugger:Log("warn", "_compressState", "Failed to JSONEncode state: "..tostring(json))
 		return nil
 	end
 	local ok, compressed = pcall(LZ4.compress, json)
 	if not ok then
-		Debugger:Throw("warn", "_compressState", "Failed to LZ4 compress state: "..tostring(compressed))
+		Debugger:Log("warn", "_compressState", "Failed to LZ4 compress state: "..tostring(compressed))
 		return nil
 	end
 	local compressedString
@@ -87,12 +87,12 @@ local function _compressState(state: any): string?
 	elseif type(compressed) == "string" then
 		compressedString = compressed
 	else
-		Debugger:Throw("warn", "_compressState", "LZ4.compress returned unknown type: "..type(compressed))
+		Debugger:Log("warn", "_compressState", "LZ4.compress returned unknown type: "..type(compressed))
 		return nil
 	end
 	local ok, base64Str = pcall(Base64.encode, compressedString)
 	if not ok then
-		Debugger:Throw("warn", "_compressState", "Failed to Base64Encode state: "..tostring(base64Str))
+		Debugger:Log("warn", "_compressState", "Failed to Base64Encode state: "..tostring(base64Str))
 		return nil
 	end
 	return base64Str
@@ -101,17 +101,17 @@ end
 local function _decompressState(compressed: string): any?
 	local ok, lz4String = pcall(Base64.decode, compressed)
 	if not ok then
-		Debugger:Throw("warn", "_decompressState", "Failed to Base64Decode state: "..tostring(lz4String))
+		Debugger:Log("warn", "_decompressState", "Failed to Base64Decode state: "..tostring(lz4String))
 		return nil
 	end
 	local ok, json = pcall(LZ4.decompress, lz4String)
 	if not ok then
-		Debugger:Throw("warn", "_decompressState", "Failed to LZ4 decompress state: "..tostring(json))
+		Debugger:Log("warn", "_decompressState", "Failed to LZ4 decompress state: "..tostring(json))
 		return nil
 	end
 	local ok, state = pcall(HttpService.JSONDecode, HttpService, json)
 	if not ok then
-		Debugger:Throw("warn", "_decompressState", "Failed to JSONDecode state: "..tostring(state))
+		Debugger:Log("warn", "_decompressState", "Failed to JSONDecode state: "..tostring(state))
 		return nil
 	end
 	return state
@@ -125,7 +125,7 @@ function FullState:_safeCallListener(listener: (...any)->(), ...:any)
 	end)
 	if not success then
 		local errStr = tostring(err)
-		Debugger:Throw("warn","SafeCall", ("Error in path subscriber: %s")
+		Debugger:Log("warn","SafeCall", ("Error in path subscriber: %s")
 			:format(errStr))
 		self:_queueEvent(self._errorSignal, "PathSubscriber", errStr, listener)
 	end
@@ -163,7 +163,7 @@ function FullState:_releaseLock()
 					event.Signal:Fire(unpack(event.Args))
 				end)
 				if not ok then
-					Debugger:Throw("warn", "_releaseLock", "Failed to fire event: "..tostring(err))
+					Debugger:Log("warn", "_releaseLock", "Failed to fire event: "..tostring(err))
 				end
 			end
 		end
@@ -181,10 +181,10 @@ end
 function FullState.Create(StateName: string, initialState: any, reducer: TypeDef.Reducer?, options: TypeDef.CreateOptions?): TypeDef.FullState
 	createMutex:lock()
 	if typeof(StateName) ~= "string" then
-		Debugger:Throw("error", "Create", "StateName must be a string")
+		Debugger:Log("error", "Create", "StateName must be a string")
 	end
 	if States[StateName] then
-		Debugger:Throw("warn", "Create", "State manager '"..StateName.."' already exists. Returning existing instance.")
+		Debugger:Log("warn", "Create", "State manager '"..StateName.."' already exists. Returning existing instance.")
 		createMutex:unlock()
 		return States[StateName]
 	end
@@ -209,7 +209,7 @@ function FullState.Create(StateName: string, initialState: any, reducer: TypeDef
 	if compressedInitial then
 		self._history:Insert(1, compressedInitial)
 	else
-		Debugger:Throw("warn", "Create", "Failed to compress initial state for history.")
+		Debugger:Log("warn", "Create", "Failed to compress initial state for history.")
 	end
 	-- Action tracking & Auditing
 	self._actionHistory = {}
@@ -246,7 +246,7 @@ end
 
 function FullState:Destroy()
 	if self._destroyed then
-		Debugger:Throw("error", "Destroy", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "Destroy", "Attempt to use a destroyed state instance.")
 		return
 	end
 	self:_acquireLock()
@@ -286,21 +286,21 @@ end
 
 function FullState:ReadOnly(state: boolean)
 	if self._destroyed then
-		Debugger:Throw("error", "ReadOnly", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "ReadOnly", "Attempt to use a destroyed state instance.")
 		return
 	end
 	self:_acquireLock()
 	if type(state) == "boolean" then
 		self._readOnly = state
 	else
-		Debugger:Throw("error", "ReadOnly", "Expected boolean, got "..type(state))
+		Debugger:Log("error", "ReadOnly", "Expected boolean, got "..type(state))
 	end
 	self:_releaseLock()
 end
 
 function FullState:GetState(): any
 	if self._destroyed then
-		Debugger:Throw("error", "GetState", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "GetState", "Attempt to use a destroyed state instance.")
 		return
 	end
 	local success, result = pcall(function()
@@ -314,7 +314,7 @@ end
 
 function FullState:GetStateHash(): string
 	if self._destroyed then
-		Debugger:Throw("error", "GetStateHash", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "GetStateHash", "Attempt to use a destroyed state instance.")
 		return ""
 	end
 	return self._stateHash
@@ -322,7 +322,7 @@ end
 
 function FullState:OnChanged(listener: TypeDef.Listener): RBXScriptSignal
 	if self._destroyed then
-		Debugger:Throw("error", "OnChanged", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "OnChanged", "Attempt to use a destroyed state instance.")
 		return
 	end
 	return self._changedSignal:Connect(listener)
@@ -330,7 +330,7 @@ end
 
 function FullState:OnDispatch(listener: (action: TypeDef.Action) -> ())
 	if self._destroyed then
-		Debugger:Throw("error", "OnDispatch", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "OnDispatch", "Attempt to use a destroyed state instance.")
 		return
 	end
 	return self._dispatchSignal:Connect(listener)
@@ -338,7 +338,7 @@ end
 
 function FullState:OnCommit(listener: (newState: any, oldState: any, action: TypeDef.Action) -> ())
 	if self._destroyed then
-		Debugger:Throw("error", "OnCommit", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "OnCommit", "Attempt to use a destroyed state instance.")
 		return
 	end
 	return self._commitSignal:Connect(listener)
@@ -346,7 +346,7 @@ end
 
 function FullState:OnError(listener: ErrorCallback)
 	if self._destroyed then
-		Debugger:Throw("error", "OnError", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "OnError", "Attempt to use a destroyed state instance.")
 		return
 	end
 	return self._errorSignal:Connect(listener)
@@ -354,12 +354,12 @@ end
 
 function FullState:use(middleware: Middleware)
 	if self._destroyed then
-		Debugger:Throw("error", "use", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "use", "Attempt to use a destroyed state instance.")
 		return
 	end
 	self:_acquireLock()
 	if self._readOnly then
-		Debugger:Throw("warn", "use", "State is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "use", "State is in read-only mode; operation ignored.")
 		self:_releaseLock()
 		return self
 	end
@@ -371,11 +371,11 @@ end
 
 function FullState:Dispatch(action: TypeDef.Action)
 	if self._destroyed then
-		Debugger:Throw("error", "Dispatch", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "Dispatch", "Attempt to use a destroyed state instance.")
 		return
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "Dispatch", "State is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Dispatch", "State is in read-only mode; operation ignored.")
 		return
 	end
 	if self._dedupeLog then
@@ -389,7 +389,7 @@ function FullState:Dispatch(action: TypeDef.Action)
 		local oldState = deepCopy(self._state)
 		local function finalDispatch()
 			if type(action) ~= "table" or not action.type then
-				Debugger:Throw("error", "Dispatch", "Action must be a table with a 'type' field")
+				Debugger:Log("error", "Dispatch", "Action must be a table with a 'type' field")
 				return
 			end
 			if self._reducer then
@@ -440,18 +440,18 @@ function FullState:Dispatch(action: TypeDef.Action)
 			:format(tostring(result), debug.traceback(nil, 2))
 		self:_queueEvent(self._errorSignal, "Dispatch", errStr, action)
 		self:_releaseLock()
-		Debugger:Throw("error", "Dispatch", errStr)
+		Debugger:Log("error", "Dispatch", errStr)
 	end
 	self:_releaseLock()
 end
 
 function FullState:CreateSlice(slicePath: string): FullState
 	if self._destroyed then
-		Debugger:Throw("error", "CreateSlice", "Attempt to use a destroyed parent state instance.")
+		Debugger:Log("error", "CreateSlice", "Attempt to use a destroyed parent state instance.")
 		return
 	end
 	if type(slicePath) ~= "string" or slicePath == "" then
-		Debugger:Throw("error", "CreateSlice", "slicePath must be a non-empty string.")
+		Debugger:Log("error", "CreateSlice", "slicePath must be a non-empty string.")
 		return
 	end
 	local sliceStore = {
@@ -464,7 +464,7 @@ function FullState:CreateSlice(slicePath: string): FullState
 	end
 	function sliceStore:Dispatch(action: TypeDef.Action)
 		if type(action) ~= "table" or not action.type then
-			Debugger:Throw("error", "Dispatch (slice)", "Action must be a table with a 'type' field")
+			Debugger:Log("error", "Dispatch (slice)", "Action must be a table with a 'type' field")
 			return
 		end
 		local prefixedAction = deepCopy(action)
@@ -499,11 +499,11 @@ end
 
 function FullState:Batch(callback: () -> ())
 	if self._destroyed then
-		Debugger:Throw("error", "Batch", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "Batch", "Attempt to use a destroyed state instance.")
 		return
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "Batch", "State is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Batch", "State is in read-only mode; operation ignored.")
 		return
 	end
 	self:_acquireLock()
@@ -516,7 +516,7 @@ function FullState:Batch(callback: () -> ())
 	if not success then
 		local errStr = "Error during batch callback: "..tostring(err)
 		self:_queueEvent(self._errorSignal, "Batch", errStr)
-		Debugger:Throw("error", "Batch", errStr)
+		Debugger:Log("error", "Batch", errStr)
 	end
 	if self._batchDepth == 0 and self._pendingNotifications then
 		self._pendingNotifications = false
@@ -551,11 +551,11 @@ end
 
 function FullState:Undo()
 	if self._destroyed then
-		Debugger:Throw("error", "Undo", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "Undo", "Attempt to use a destroyed state instance.")
 		return
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "Undo", "State is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Undo", "State is in read-only mode; operation ignored.")
 		return
 	end
 	self:_acquireLock()
@@ -565,7 +565,7 @@ function FullState:Undo()
 			local oldState = deepCopy(self._state)
 			local compressedState = self._history:Search(self._historyIndex)
 			if not compressedState then
-				Debugger:Throw("warn", "Undo", "Failed to find history state at index: "..self._historyIndex)
+				Debugger:Log("warn", "Undo", "Failed to find history state at index: "..self._historyIndex)
 				return
 			end
 			self._state = _decompressState(compressedState)
@@ -579,17 +579,17 @@ function FullState:Undo()
 		local errStr = ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2))
 		self:_queueEvent(self._errorSignal, "Undo", errStr)
-		Debugger:Throw("error", "Undo", errStr)
+		Debugger:Log("error", "Undo", errStr)
 	end
 end
 
 function FullState:Redo()
 	if self._destroyed then
-		Debugger:Throw("error", "Redo", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "Redo", "Attempt to use a destroyed state instance.")
 		return
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "Redo", "State is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Redo", "State is in read-only mode; operation ignored.")
 		return
 	end
 	self:_acquireLock()
@@ -600,7 +600,7 @@ function FullState:Redo()
 			local oldState = deepCopy(self._state)
 			local compressedState = self._history:Search(self._historyIndex)
 			if not compressedState then
-				Debugger:Throw("warn", "Redo", "Failed to find history state at index: "..self._historyIndex)
+				Debugger:Log("warn", "Redo", "Failed to find history state at index: "..self._historyIndex)
 				return
 			end
 			self._state = _decompressState(compressedState)
@@ -614,13 +614,13 @@ function FullState:Redo()
 		local errStr = ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2))
 		self:_queueEvent(self._errorSignal, "Redo", errStr)
-		Debugger:Throw("error", "Redo", errStr)
+		Debugger:Log("error", "Redo", errStr)
 	end
 end
 
 function FullState:Snapshot(): StateSnapshot
 	if self._destroyed then
-		Debugger:Throw("error", "Snapshot", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "Snapshot", "Attempt to use a destroyed state instance.")
 		return
 	end
 	self:_acquireLock()
@@ -638,11 +638,11 @@ end
 
 function FullState:Restore(snapshot: StateSnapshot)
 	if self._destroyed then
-		Debugger:Throw("error", "Restore", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "Restore", "Attempt to use a destroyed state instance.")
 		return
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "Restore", "State is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Restore", "State is in read-only mode; operation ignored.")
 		return
 	end
 	self:_acquireLock()
@@ -663,7 +663,7 @@ function FullState:Restore(snapshot: StateSnapshot)
 		if snapshot.lastAuditRoot and #self._actionAuditLog > 0 then
 			self._lastAuditTree = MerkleTree.new(self._actionAuditLog)
 			if self._lastAuditTree:getRoot() ~= snapshot.lastAuditRoot then
-				Debugger:Throw("warn", "Restore", "Restored audit log root hash does not match snapshot root hash. Log may be inconsistent.")
+				Debugger:Log("warn", "Restore", "Restored audit log root hash does not match snapshot root hash. Log may be inconsistent.")
 			end
 		else
 			self._lastAuditTree = nil
@@ -677,19 +677,19 @@ function FullState:Restore(snapshot: StateSnapshot)
 		local errStr = ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2))
 		self:_queueEvent(self._errorSignal, "Restore", errStr)
-		Debugger:Throw("error", "Restore", errStr)
+		Debugger:Log("error", "Restore", errStr)
 	end
 end
 
 function FullState:ToJSON(): string
 	if self._destroyed then
-		Debugger:Throw("error", "ToJSON", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "ToJSON", "Attempt to use a destroyed state instance.")
 		return ""
 	end
 	local snapshot = self:Snapshot()
 	local ok, json = pcall(HttpService.JSONEncode, HttpService, snapshot)
 	if not ok then
-		Debugger:Throw("error", "ToJSON", "Failed to serialize snapshot: "..tostring(json))
+		Debugger:Log("error", "ToJSON", "Failed to serialize snapshot: "..tostring(json))
 		return ""
 	end
 	return json
@@ -697,11 +697,11 @@ end
 
 function FullState:FromJSON(jsonString: string)
 	if self._destroyed then
-		Debugger:Throw("error", "FromJSON", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "FromJSON", "Attempt to use a destroyed state instance.")
 		return
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "FromJSON", "State is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "FromJSON", "State is in read-only mode; operation ignored.")
 		return
 	end
 	local ok, snapshot = pcall(HttpService.JSONDecode, HttpService, jsonString)
@@ -710,7 +710,7 @@ function FullState:FromJSON(jsonString: string)
 		self:_acquireLock()
 		self:_queueEvent(self._errorSignal, "FromJSON", errStr)
 		self:_releaseLock()
-		Debugger:Throw("error", "FromJSON", errStr)
+		Debugger:Log("error", "FromJSON", errStr)
 		return
 	end
 	self:Restore(snapshot)
@@ -718,7 +718,7 @@ end
 
 function FullState:GetStateHistoryRange(startIndex: number, endIndex: number): {{key: number, state: any}}
 	if self._destroyed then
-		Debugger:Throw("error", "GetStateHistoryRange", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "GetStateHistoryRange", "Attempt to use a destroyed state instance.")
 		return {}
 	end
 	local results = {}
@@ -729,7 +729,7 @@ function FullState:GetStateHistoryRange(startIndex: number, endIndex: number): {
 			if decompressedState then
 				table.insert(results, {key = entry.key, state = decompressedState})
 			else
-				Debugger:Throw("warn", "GetStateHistoryRange", "Failed to decompress history entry at key: "..entry.key)
+				Debugger:Log("warn", "GetStateHistoryRange", "Failed to decompress history entry at key: "..entry.key)
 			end
 		end
 	end
@@ -738,15 +738,15 @@ end
 
 function FullState:SubscribeToPath(path: string, listener: (newValue: any, oldValue: any) -> (), options: {equalityFn: ((any, any) -> boolean)?}?)
 	if self._destroyed then
-		Debugger:Throw("error", "SubscribeToPath", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "SubscribeToPath", "Attempt to use a destroyed state instance.")
 		return
 	end
 	if type(path) ~= "string" or path == "" then
-		Debugger:Throw("error", "SubscribeToPath", "Path must be a non-empty string.")
+		Debugger:Log("error", "SubscribeToPath", "Path must be a non-empty string.")
 		return
 	end
 	if type(listener) ~= "function" then
-		Debugger:Throw("error", "SubscribeToPath", "Listener must be a function.")
+		Debugger:Log("error", "SubscribeToPath", "Listener must be a function.")
 		return
 	end
 	local opts = options or {}
@@ -783,11 +783,11 @@ end
 
 function FullState:BuildAuditTree(): string?
 	if self._destroyed then
-		Debugger:Throw("error", "BuildAuditTree", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "BuildAuditTree", "Attempt to use a destroyed state instance.")
 		return
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "BuildAuditTree", "State is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "BuildAuditTree", "State is in read-only mode; operation ignored.")
 		return
 	end
 	self:_acquireLock()
@@ -804,7 +804,7 @@ end
 
 function FullState:GetAuditRoot(): string?
 	if self._destroyed then
-		Debugger:Throw("error", "GetAuditRoot", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "GetAuditRoot", "Attempt to use a destroyed state instance.")
 		return
 	end
 	self:_acquireLock()
@@ -823,15 +823,15 @@ end
 
 function FullState:Transaction(transactionFn: (txStore: FullState) -> any): (boolean, any?)
 	if self._destroyed then
-		Debugger:Throw("error", "Transaction", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "Transaction", "Attempt to use a destroyed state instance.")
 		return false, "State destroyed"
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "Transaction", "State is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Transaction", "State is in read-only mode; operation ignored.")
 		return false, "Read-only mode"
 	end
 	if type(transactionFn) ~= "function" then
-		Debugger:Throw("error", "Transaction", "Provided argument must be a function.")
+		Debugger:Log("error", "Transaction", "Provided argument must be a function.")
 		return false, "Invalid argument: function required"
 	end
 	local journaledActions = {}
@@ -842,7 +842,7 @@ function FullState:Transaction(transactionFn: (txStore: FullState) -> any): (boo
 	end
 	function txStore:Dispatch(action: TypeDef.Action)
 		if type(action) ~= "table" or not action.type then
-			Debugger:Throw("error", "Dispatch (tx)", "Action must be a table with a 'type' field")
+			Debugger:Log("error", "Dispatch (tx)", "Action must be a table with a 'type' field")
 			return
 		end
 		if self._reducer then
@@ -880,7 +880,7 @@ function FullState:Transaction(transactionFn: (txStore: FullState) -> any): (boo
 	else
 		local errStr = "Transaction function failed: "..tostring(results)
 		self:_queueEvent(self._errorSignal, "Transaction", errStr, results)
-		Debugger:Throw("warn", "Transaction", errStr..". Operations discarded.")
+		Debugger:Log("warn", "Transaction", errStr..". Operations discarded.")
 	end
 	self:_releaseLock()
 	if success then
@@ -895,11 +895,11 @@ end
 
 function FullState:Reset(...)
 	if self._destroyed then
-		Debugger:Throw("error", "Reset", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "Reset", "Attempt to use a destroyed state instance.")
 		return
 	end
 	if self._readOnly then
-		Debugger:Throw("warn", "Reset", "State is in read-only mode; operation ignored.")
+		Debugger:Log("warn", "Reset", "State is in read-only mode; operation ignored.")
 		return
 	end
 	local argCount = select("#", ...)
@@ -930,14 +930,14 @@ function FullState:Reset(...)
 		local errStr = ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2))
 		self:_queueEvent(self._errorSignal, "Reset", errStr)
-		Debugger:Throw("error", "Reset", errStr)
+		Debugger:Log("error", "Reset", errStr)
 	end
 end
 
 function FullState:Disconnect(connectionId: number)
 	if self._destroyed then return end
 	if type(connectionId) ~= "number" then
-		Debugger:Throw("warn", "Disconnect", "Invalid connectionId, expected a number.")
+		Debugger:Log("warn", "Disconnect", "Invalid connectionId, expected a number.")
 		return
 	end
 	self:_acquireLock()
@@ -950,7 +950,7 @@ end
 
 function FullState:ClearListeners()
 	if self._destroyed then
-		Debugger:Throw("error", "ClearListeners", "Attempt to use a destroyed state instance.")
+		Debugger:Log("error", "ClearListeners", "Attempt to use a destroyed state instance.")
 		return
 	end
 	self:_acquireLock()
@@ -966,14 +966,14 @@ function FullState:WaitForChange(selectorFn: Selector?, timeout: number?): (any?
 	local co = coroutine.running()
 	if not co then
 		local errStr = "WaitForChange must be called from a coroutine (e.g., inside task.spawn)."
-		Debugger:Throw("error", "WaitForChange", errStr)
+		Debugger:Log("error", "WaitForChange", errStr)
 		return nil, errStr
 	end
 	local startValue
 	local ok, result = pcall(selector, self:GetState())
 	if not ok then
 		local errStr = "Selector function failed on initial call: "..tostring(result)
-		Debugger:Throw("error", "WaitForChange", errStr)
+		Debugger:Log("error", "WaitForChange", errStr)
 		return nil, errStr
 	end
 	startValue = result
@@ -1021,14 +1021,14 @@ function FullState:_recordStateHistory(state: any)
 			if success then
 				self._historySize = math.max(0, self._historySize - 1)
 			else
-				Debugger:Throw("warn", "_recordStateHistory", ("Failed to delete history key %d: %s")
+				Debugger:Log("warn", "_recordStateHistory", ("Failed to delete history key %d: %s")
 					:format(k, tostring(err)))
 			end
 		end
 	end
 	local compressed = _compressState(state)
 	if not compressed then
-		Debugger:Throw("warn", "_recordStateHistory", "Failed to compress state for history, not recording.")
+		Debugger:Log("warn", "_recordStateHistory", "Failed to compress state for history, not recording.")
 		return
 	end
 	self._historyIndex = self._historyIndex + 1
@@ -1041,7 +1041,7 @@ function FullState:_recordStateHistory(state: any)
 			if success then
 				self._historySize = math.max(0, self._historySize - 1)
 			else
-				Debugger:Throw("warn", "_recordStateHistory", ("Failed to prune history key %d: %s")
+				Debugger:Log("warn", "_recordStateHistory", ("Failed to prune history key %d: %s")
 					:format(minKey, tostring(err)))
 				break
 			end
@@ -1063,7 +1063,7 @@ function FullState:_recordAction(action: TypeDef.Action, executionTime: number)
 	if ok then
 		table.insert(self._actionAuditLog, xxHash.hash32Hex(auditString))
 	else
-		Debugger:Throw("warn", "_recordAction", "Failed to serialize action for audit log.")
+		Debugger:Log("warn", "_recordAction", "Failed to serialize action for audit log.")
 	end
 	while #self._actionHistory > self._maxActionHistory do
 		table.remove(self._actionHistory, 1)
@@ -1072,13 +1072,13 @@ end
 
 function FullState.combineReducers(reducers: {[string]: TypeDef.Reducer}): TypeDef.Reducer
 	if type(reducers) ~= "table" then
-		Debugger:Throw("error", "combineReducers", "Expected 'reducers' to be a table, got "..type(reducers))
+		Debugger:Log("error", "combineReducers", "Expected 'reducers' to be a table, got "..type(reducers))
 		return function(state) return state end
 	end
 	local reducerKeys = {}
 	for key, reducer in pairs(reducers) do
 		if type(reducer) ~= "function" then
-			Debugger:Throw("error", "combineReducers", ("Reducer for key '%s' is not a function, got %s")
+			Debugger:Log("error", "combineReducers", ("Reducer for key '%s' is not a function, got %s")
 				:format(tostring(key), type(reducer)))
 			return function(state) return state end
 		end
@@ -1092,7 +1092,7 @@ function FullState.combineReducers(reducers: {[string]: TypeDef.Reducer}): TypeD
 			local previousStateForKey = state[key]
 			local nextStateForKey = reducer(previousStateForKey, action)
 			if nextStateForKey == nil then
-				Debugger:Throw("warn", "combineReducers", ("Reducer for key '%s' returned nil for action '%s'.")
+				Debugger:Log("warn", "combineReducers", ("Reducer for key '%s' returned nil for action '%s'.")
 					:format(tostring(key), tostring(action.type)))
 			end
 			if previousStateForKey ~= nextStateForKey then
@@ -1117,10 +1117,10 @@ FullState.middleware = {}
 function FullState.middleware.logger()
 	return function(store: any, action: TypeDef.Action, next: () -> ())
 		local prevState = store:GetState()
-		Debugger:Throw("print", "logger", ("Action: %s")
+		Debugger:Log("print", "logger", ("Action: %s")
 			:format(action.type)) next()
 		local nextState = store:GetState()
-		Debugger:Throw("print", "logger", "State updated")
+		Debugger:Log("print", "logger", "State updated")
 	end
 end
 
@@ -1146,7 +1146,7 @@ function FullState.middleware.performance(threshold: number?)
 		local start = os.clock() next()
 		local duration = os.clock() - start
 		if duration > warnThreshold then
-			Debugger:Throw("warn", "performance", ("Slow action '%s' took %.3fms")
+			Debugger:Log("warn", "performance", ("Slow action '%s' took %.3fms")
 				:format(action.type,duration * 100))
 		end
 	end
@@ -1158,7 +1158,7 @@ function FullState.middleware.validator(schema: {[string]: string})
 		if expectedType then
 			local payloadType = type(action.payload)
 			if payloadType ~= expectedType then
-				Debugger:Throw("error", "validator",("Invalid payload type for action '%s'. Expected %s, got %s")
+				Debugger:Log("error", "validator",("Invalid payload type for action '%s'. Expected %s, got %s")
 					:format(action.type,expectedType,payloadType))
 				return
 			end

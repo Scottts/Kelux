@@ -165,7 +165,7 @@ function Task.new(fn, options)
 				self.scheduledFor = self.parsedCron:getNextRun(os.time())
 			end
 		else
-			Debugger:Throw("error","new",("Invalid cron expression: %s - %s")
+			Debugger:Log("error","new",("Invalid cron expression: %s - %s")
 				:format(self.cronExpression,parser))
 			return nil
 		end
@@ -239,7 +239,7 @@ function FullTask.Create(NameOrConfig, Options)
 	elseif heapType == "pairingheap" then
 		self.priorityQueue = PairingHeap.new()
 	else
-		Debugger:Throw("error","Create",("Invalid heapType: %q"):format(heapType))
+		Debugger:Log("error","Create",("Invalid heapType: %q"):format(heapType))
 	end
 	self.signals = {
 		taskQueued = Signal.new(),
@@ -336,11 +336,11 @@ function FullTask:_internalSubmit(taskFn, options)
 	options = options or {}
 	local contentHash = generateContentHashFromOptions(taskFn, options)
 	if options.id and self.tasks[options.id] then
-		Debugger:Throw("warn", "Submit", ("Attempt to submit _Task with duplicate explicit id: %s"):format(tostring(options.id)))
+		Debugger:Log("warn", "Submit", ("Attempt to submit _Task with duplicate explicit id: %s"):format(tostring(options.id)))
 		return nil
 	end
 	if self and self.tasksByContentHash[contentHash] then
-		Debugger:Throw("warn", "Submit", ("_Task with identical content already submitted (existing ID: %s, Content Hash: %s)")
+		Debugger:Log("warn", "Submit", ("_Task with identical content already submitted (existing ID: %s, Content Hash: %s)")
 			:format(self.tasksByContentHash[contentHash], contentHash))
 		return nil
 	end
@@ -353,7 +353,7 @@ function FullTask:_internalSubmit(taskFn, options)
 		for _, depId in ipairs(_Task.dependencies) do
 			local depTask = self.tasks[depId]
 			if not depTask then
-				Debugger:Throw("warn", "Submit", 
+				Debugger:Log("warn", "Submit", 
 					("Attempted to submit _Task %s with non-existent dependency: %s")
 						:format(_Task.id, depId))
 				validDependencies = false
@@ -387,7 +387,7 @@ function FullTask:_internalSubmit(taskFn, options)
 				end
 			end
 			self.tasksByContentHash[_Task.contentHash] = nil 
-			Debugger:Throw("error", "Submit", ("Circular dependency detected when submitting _Task %s: %q")
+			Debugger:Log("error", "Submit", ("Circular dependency detected when submitting _Task %s: %q")
 				:format(_Task.id, cycleError or "unknown cycle"))
 			return nil
 		end
@@ -421,7 +421,7 @@ end
 
 function FullTask:Submit(taskFn: (ctx: TypeDef.TaskExecutionContext) -> ...any, options: TypeDef.TaskOptions?): TypeDef.Task?
 	if self and self._destroyed then
-		Debugger:Throw("error", "Submit", "Attempt to use a destroyed task instance.")
+		Debugger:Log("error", "Submit", "Attempt to use a destroyed task instance.")
 		return nil
 	end
 	self.mutex:lock()
@@ -440,7 +440,7 @@ function FullTask:Submit(taskFn: (ctx: TypeDef.TaskExecutionContext) -> ...any, 
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "Submit", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Submit", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -479,7 +479,7 @@ function FullTask:_enqueueTask(_Task)
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "_enqueueTask", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "_enqueueTask", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 end
@@ -737,7 +737,7 @@ end
 
 function FullTask:UpdateTaskPriority(taskId: string, newPriority: number)
 	if self and self._destroyed then
-		Debugger:Throw("error", "UpdateTaskPriority", "Attempt to use a destroyed task instance.")
+		Debugger:Log("error", "UpdateTaskPriority", "Attempt to use a destroyed task instance.")
 		return
 	end
 	self.mutex:lock()
@@ -746,7 +746,7 @@ function FullTask:UpdateTaskPriority(taskId: string, newPriority: number)
 	end)
 	self.mutex:unlock()
 	if not success then
-		Debugger:Throw("error", "UpdateTaskPriority", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "UpdateTaskPriority", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -768,7 +768,7 @@ function FullTask:_internalCancelTask(taskId: string, force: boolean?)
 		return false
 	end
 	if _Task.state == TaskState.RUNNING and not force then
-		Debugger:Throw("warn", "CancelTask", ("Cannot cancel running _Task %s without force option.")
+		Debugger:Log("warn", "CancelTask", ("Cannot cancel running _Task %s without force option.")
 			:format(taskId))
 		return false
 	end
@@ -805,7 +805,7 @@ end
 
 function FullTask:CancelTask(taskId: string, force: boolean?)
 	if self and self._destroyed then
-		Debugger:Throw("error", "CancelTask", "Attempt to use a destroyed task instance.")
+		Debugger:Log("error", "CancelTask", "Attempt to use a destroyed task instance.")
 		return
 	end
 	self.mutex:lock()
@@ -824,7 +824,7 @@ function FullTask:CancelTask(taskId: string, force: boolean?)
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "CancelTask", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "CancelTask", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -947,7 +947,7 @@ function FullTask:_processScheduledTasks()
 		end
 	end
 	if not pcall_success then
-		Debugger:Throw("error", "_processScheduledTasks", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "_processScheduledTasks", ("Internal failure: %s\n%s")
 			:format(tostring(pcall_err), debug.traceback(nil, 2)))
 		return
 	end
@@ -972,7 +972,7 @@ function FullTask:_processWaitingTasks()
 			if status == "suspended" then
 				table.insert(tasksToResume, _Task)
 			elseif status == "dead" then
-				Debugger:Throw("warn", "FullTask:_processWaitingTasks", ("Task %s in WAITING state but coroutine is DEAD. Removing.")
+				Debugger:Log("warn", "FullTask:_processWaitingTasks", ("Task %s in WAITING state but coroutine is DEAD. Removing.")
 					:format(_Task.id))
 				table.insert(tasksToCleanup, id)
 			end
@@ -985,7 +985,7 @@ function FullTask:_processWaitingTasks()
 	for _, _Task in ipairs(tasksToResume) do
 		local success, result = coroutine.resume(_Task.coroutine)
 		if not success then
-			Debugger:Throw("error", "FullTask:_processWaitingTasks", ("Coroutine for task %s errored during resume while WAITING: %s")
+			Debugger:Log("error", "FullTask:_processWaitingTasks", ("Coroutine for task %s errored during resume while WAITING: %s")
 				:format(_Task.id, tostring(result)))
 			self.mutex:lock()
 			_Task:setState(TaskState.FAILED)
@@ -1007,12 +1007,12 @@ end
 
 function FullTask:_internalScheduleRecurring(_Task)
 	if not _Task.parsedCron then
-		Debugger:Throw("warn","_scheduleRecurring",("Attempted to schedule recurring _Task without valid cron parser: %s")
+		Debugger:Log("warn","_scheduleRecurring",("Attempted to schedule recurring _Task without valid cron parser: %s")
 			:format(_Task.id))
 		return false
 	end
 	if _Task.recurringCount ~= nil and _Task.recurringCount < 1 then
-		Debugger:Throw("print", "_scheduleRecurring", ("Recurring task %s has completed its run count.")
+		Debugger:Log("print", "_scheduleRecurring", ("Recurring task %s has completed its run count.")
 			:format(_Task.id))
 		return false
 	end
@@ -1026,7 +1026,7 @@ function FullTask:_internalScheduleRecurring(_Task)
 		end
 		return true 
 	else
-		Debugger:Throw("warn","_scheduleRecurring",("Could not determine next run time for recurring _Task: %s. Discontinuing.")
+		Debugger:Log("warn","_scheduleRecurring",("Could not determine next run time for recurring _Task: %s. Discontinuing.")
 			:format(_Task.id))
 		self.metrics.tasksCancelled = self.metrics.tasksCancelled + 1 
 		self:_queueEvent(self.signals.taskCancelled, _Task)
@@ -1041,7 +1041,7 @@ end
 
 function FullTask:GetTask(id)
 	if self and self._destroyed then
-		Debugger:Throw("error", "GetTask", "Attempt to use a destroyed task instance.")
+		Debugger:Log("error", "GetTask", "Attempt to use a destroyed task instance.")
 		return nil
 	end
 	self.mutex:lock()
@@ -1050,7 +1050,7 @@ function FullTask:GetTask(id)
 	end)
 	self.mutex:unlock()
 	if not success then
-		Debugger:Throw("error", "GetTask", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "GetTask", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1068,7 +1068,7 @@ end
 
 function FullTask:GetTasks(status)
 	if self and self._destroyed then
-		Debugger:Throw("error", "GetTasks", "Attempt to use a destroyed task instance.")
+		Debugger:Log("error", "GetTasks", "Attempt to use a destroyed task instance.")
 		return nil
 	end
 
@@ -1078,7 +1078,7 @@ function FullTask:GetTasks(status)
 	end)
 	self.mutex:unlock()
 	if not success then
-		Debugger:Throw("error", "GetTasks", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "GetTasks", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 	return result
@@ -1115,7 +1115,7 @@ end
 
 function FullTask:SetPriority(id, newPriority)
 	if self and self._destroyed then
-		Debugger:Throw("error", "SetPriority", "Attempt to use a destroyed task instance.")
+		Debugger:Log("error", "SetPriority", "Attempt to use a destroyed task instance.")
 		return false, "Task manager destroyed."
 	end
 	self.mutex:lock()
@@ -1126,7 +1126,7 @@ function FullTask:SetPriority(id, newPriority)
 	local success = pcall_results[1]
 	if not success then
 		local err = tostring(pcall_results[2])
-		Debugger:Throw("error", "SetPriority", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "SetPriority", ("Internal failure: %s\n%s")
 			:format(err, debug.traceback(nil, 2)))
 		return false, err
 	end
@@ -1164,7 +1164,7 @@ end
 
 function FullTask:AbortTask(id)
 	if self and self._destroyed then
-		Debugger:Throw("error", "AbortTask", "Attempt to use a destroyed task instance.")
+		Debugger:Log("error", "AbortTask", "Attempt to use a destroyed task instance.")
 		return false, "Task manager destroyed."
 	end
 	self.mutex:lock()
@@ -1185,7 +1185,7 @@ function FullTask:AbortTask(id)
 	local success = pcall_results[1]
 	if not success then
 		local err = tostring(pcall_results[2])
-		Debugger:Throw("error", "AbortTask", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "AbortTask", ("Internal failure: %s\n%s")
 			:format(err, debug.traceback(nil, 2)))
 		return false, err
 	end
@@ -1262,7 +1262,7 @@ end
 
 function FullTask:AddDependency(taskId, prerequisiteTaskId)
 	if self and self._destroyed then
-		Debugger:Throw("error", "AddDependency", "Attempt to use a destroyed task instance.")
+		Debugger:Log("error", "AddDependency", "Attempt to use a destroyed task instance.")
 		return false, "Task manager destroyed."
 	end
 	self.mutex:lock()
@@ -1273,7 +1273,7 @@ function FullTask:AddDependency(taskId, prerequisiteTaskId)
 	local success = pcall_results[1]
 	if not success then
 		local err = tostring(pcall_results[2])
-		Debugger:Throw("error", "AddDependency", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "AddDependency", ("Internal failure: %s\n%s")
 			:format(err, debug.traceback(nil, 2)))
 		return false, err
 	end
@@ -1294,7 +1294,7 @@ end
 
 function FullTask:Pause()
 	if self and self._destroyed then
-		Debugger:Throw("error", "Pause", "Attempt to use a destroyed task instance.")
+		Debugger:Log("error", "Pause", "Attempt to use a destroyed task instance.")
 		return false, "Task manager destroyed."
 	end
 	self.mutex:lock()
@@ -1306,7 +1306,7 @@ function FullTask:Pause()
 	local success = pcall_results[1]
 	if not success then
 		local err = tostring(pcall_results[2])
-		Debugger:Throw("error", "Pause", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Pause", ("Internal failure: %s\n%s")
 			:format(err, debug.traceback(nil, 2)))
 		return false, err
 	end
@@ -1338,7 +1338,7 @@ end
 
 function FullTask:Resume()
 	if self and self._destroyed then
-		Debugger:Throw("error", "Resume", "Attempt to use a destroyed task instance.")
+		Debugger:Log("error", "Resume", "Attempt to use a destroyed task instance.")
 		return false, "Task manager destroyed."
 	end
 	self.mutex:lock()
@@ -1349,7 +1349,7 @@ function FullTask:Resume()
 	local success = pcall_results[1]
 	if not success then
 		local err = tostring(pcall_results[2])
-		Debugger:Throw("error", "Resume", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Resume", ("Internal failure: %s\n%s")
 			:format(err, debug.traceback(nil, 2)))
 		return false, err
 	end
@@ -1370,7 +1370,7 @@ end
 
 function FullTask:GetTaskDependencies(id)
 	if self and self._destroyed then
-		Debugger:Throw("error", "GetTaskDependencies", "Attempt to use a destroyed task instance.")
+		Debugger:Log("error", "GetTaskDependencies", "Attempt to use a destroyed task instance.")
 		return nil
 	end
 	self.mutex:lock()
@@ -1379,7 +1379,7 @@ function FullTask:GetTaskDependencies(id)
 	end)
 	self.mutex:unlock()
 	if not success then
-		Debugger:Throw("error", "GetTaskDependencies", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "GetTaskDependencies", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 		return nil
 	end
@@ -1435,7 +1435,7 @@ end
 
 function FullTask:Destroy()
 	if self and self._destroyed then
-		Debugger:Throw("error", "Destroy", "Attempt to use a destroyed task instance.")
+		Debugger:Log("error", "Destroy", "Attempt to use a destroyed task instance.")
 		return
 	end
 	self._destroyed = true
@@ -1460,14 +1460,14 @@ function FullTask:Destroy()
 		end
 	end
 	if not success then
-		Debugger:Throw("error", "Destroy", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Destroy", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 	end
 end
 
 function FullTask:Snapshot(): TypeDef.FullTaskSnapshot?
 	if self and self._destroyed then
-		Debugger:Throw("error", "Snapshot", "Attempt to use a destroyed task instance.")
+		Debugger:Log("error", "Snapshot", "Attempt to use a destroyed task instance.")
 		return nil
 	end
 	self.mutex:lock()
@@ -1476,7 +1476,7 @@ function FullTask:Snapshot(): TypeDef.FullTaskSnapshot?
 	end)
 	self.mutex:unlock()
 	if not success then
-		Debugger:Throw("error", "Snapshot", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Snapshot", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
 		return nil
 	end
@@ -1585,7 +1585,7 @@ function FullTask:_internalRestore(snapshotData: TypeDef.FullTaskSnapshot, funct
 	for id, taskData in pairs(snapshotData.tasks) do
 		local fn = functionMap[taskData.id] or functionMap[taskData.name]
 		if not fn then
-			Debugger:Throw("warn", "_internalRestore", ("No function found in map for task ID %s (name: %s). Skipping.")
+			Debugger:Log("warn", "_internalRestore", ("No function found in map for task ID %s (name: %s). Skipping.")
 				:format(id, taskData.name or "nil"))
 			continue
 		end
@@ -1616,7 +1616,7 @@ function FullTask:_internalRestore(snapshotData: TypeDef.FullTaskSnapshot, funct
 			if depTask then
 				table.insert(depTask.dependents, taskObj.id)
 			else
-				Debugger:Throw("warn", "_internalRestore", ("Restored task %s has a dependency (%s) that was not found in the snapshot.")
+				Debugger:Log("warn", "_internalRestore", ("Restored task %s has a dependency (%s) that was not found in the snapshot.")
 					:format(taskObj.id, depId))
 			end
 		end
@@ -1626,11 +1626,11 @@ end
 
 function FullTask:Restore(snapshotData: TypeDef.FullTaskSnapshot, functionMap: {[string]: () -> ...any})
 	if self and self._destroyed then
-		Debugger:Throw("error", "Restore", "Attempt to use a destroyed task instance.")
+		Debugger:Log("error", "Restore", "Attempt to use a destroyed task instance.")
 		return false, "Task manager destroyed."
 	end
 	if not snapshotData or not functionMap or next(functionMap) == nil then
-		Debugger:Throw("error", "Restore", "Snapshot data and a non-empty functionMap are required.")
+		Debugger:Log("error", "Restore", "Snapshot data and a non-empty functionMap are required.")
 		return false, "Snapshot data and functionMap are required."
 	end
 	self.mutex:lock()
@@ -1641,7 +1641,7 @@ function FullTask:Restore(snapshotData: TypeDef.FullTaskSnapshot, functionMap: {
 	local success = pcall_results[1]
 	if not success then
 		local err = tostring(pcall_results[2])
-		Debugger:Throw("error", "Restore", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Restore", ("Internal failure: %s\n%s")
 			:format(err, debug.traceback(nil, 2)))
 		return false, err
 	end
@@ -1653,7 +1653,7 @@ end
 
 function FullTask:ToJSON(): string?
 	if self and self._destroyed then
-		Debugger:Throw("error", "ToJSON", "Attempt to use a destroyed task instance.")
+		Debugger:Log("error", "ToJSON", "Attempt to use a destroyed task instance.")
 		return nil
 	end
 	local snapshot = self:Snapshot()
@@ -1662,7 +1662,7 @@ function FullTask:ToJSON(): string?
 	end
 	local success, jsonString = pcall(HttpService.JSONEncode, HttpService, snapshot)
 	if not success then
-		Debugger:Throw("error", "ToJSON", ("Failed to encode snapshot to JSON: %s")
+		Debugger:Log("error", "ToJSON", ("Failed to encode snapshot to JSON: %s")
 			:format(jsonString))
 		return nil
 	end
@@ -1671,12 +1671,12 @@ end
 
 function FullTask:FromJSON(jsonString: string, functionMap: {[string]: () -> ...any})
 	if self and self._destroyed then
-		Debugger:Throw("error", "FromJSON", "Attempt to use a destroyed task instance.")
+		Debugger:Log("error", "FromJSON", "Attempt to use a destroyed task instance.")
 		return false, "Task manager destroyed."
 	end
 	local success, snapshotData = pcall(HttpService.JSONDecode, HttpService, jsonString)
 	if not success then
-		Debugger:Throw("error", "FromJSON", ("Failed to decode JSON string: %s")
+		Debugger:Log("error", "FromJSON", ("Failed to decode JSON string: %s")
 			:format(snapshotData))
 		return false, "JSON decoding failed."
 	end
@@ -1685,7 +1685,7 @@ end
 
 function FullTask:Transaction(transactionFn: (tx: TypeDef.FullTask) -> ...any)
 	if self and self._destroyed then
-		Debugger:Throw("error", "Transaction", "Attempt to use a destroyed task instance.")
+		Debugger:Log("error", "Transaction", "Attempt to use a destroyed task instance.")
 		return
 	end
 	self.mutex:lock()
@@ -1761,7 +1761,7 @@ function FullTask:Transaction(transactionFn: (tx: TypeDef.FullTask) -> ...any)
 	end
 	if not tx_success then
 		local err = tostring(tx_pcall_results[2])
-		Debugger:Throw("error", "Transaction", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Transaction", ("Internal failure: %s\n%s")
 			:format(err, debug.traceback(nil, 2)))
 		error(err)
 	end
@@ -1782,7 +1782,7 @@ end
 
 function FullTask:BulkCancel(taskIds: {string}, force: boolean?)
 	if self and self._destroyed then
-		Debugger:Throw("error", "BulkCancel", "Attempt to use a destroyed task instance.")
+		Debugger:Log("error", "BulkCancel", "Attempt to use a destroyed task instance.")
 		return 0
 	end
 	if not taskIds then
@@ -1806,7 +1806,7 @@ function FullTask:BulkCancel(taskIds: {string}, force: boolean?)
 	local success = pcall_results[1]
 	if not success then
 		local err = tostring(pcall_results[2])
-		Debugger:Throw("error", "BulkCancel", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "BulkCancel", ("Internal failure: %s\n%s")
 			:format(err, debug.traceback(nil, 2)))
 		return 0
 	end
@@ -1854,7 +1854,7 @@ end
 
 function FullTask:CancelByPattern(patOrFn: string | ((task: Task) -> boolean), force: boolean?)
 	if self and self._destroyed then
-		Debugger:Throw("error", "CancelByPattern", "Attempt to use a destroyed task instance.")
+		Debugger:Log("error", "CancelByPattern", "Attempt to use a destroyed task instance.")
 		return 0
 	end
 	if not patOrFn then
@@ -1878,7 +1878,7 @@ function FullTask:CancelByPattern(patOrFn: string | ((task: Task) -> boolean), f
 	local success = pcall_results[1]
 	if not success then
 		local err = tostring(pcall_results[2])
-		Debugger:Throw("error", "CancelByPattern", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "CancelByPattern", ("Internal failure: %s\n%s")
 			:format(err, debug.traceback(nil, 2)))
 		return 0
 	end
