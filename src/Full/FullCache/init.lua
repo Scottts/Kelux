@@ -22,7 +22,7 @@
 		JSON is C++, while KELP is pure LuaU, this is to be expected.
 	]
 ]]
-local Version = "0.3.561 (STABLE)"
+local Version = "3.56.2 (STABLE)"
 -- Dependencies
 -- Adjust all of these positions if used elsewhere...
 local TypeDef = require(script.TypeDef)
@@ -39,7 +39,6 @@ local Trie = require(Algorithms.Trie)
 local AhoCorasick = require(Algorithms.AhoCorasick)
 local LZ4 = require(Algorithms.LZ4)
 local Zstd = require(Algorithms.Zstd)
-local xxHash = require(Algorithms.xxHash)
 
 -- Cache is set to strong table as default
 local Cache = {}
@@ -69,8 +68,7 @@ local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 
 local tableIDs = setmetatable({}, {__mode = "k"})
-local workerSignal = Signal.new()
-local idToTable = {}
+local idToTable = setmetatable({}, {__mode = "v"})
 local nextID = 0
 
 -- Helper functions ----------------------------------------------------------------------------------------
@@ -1014,6 +1012,7 @@ function FullCache.Create<T>(CacheName:string, MaxObjects:number?, Opts:CreateOp
 	if not success then
 		Debugger:Log("error", "Create", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -1059,6 +1058,7 @@ function FullCache:Destroy()
 		self._watchers = nil
 		self._metrics = nil
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1075,6 +1075,7 @@ function FullCache:Destroy()
 	if not success then
 		Debugger:Log("error", "Destroy", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -1103,6 +1104,7 @@ function FullCache:InsertSingle<T>(item:T):T
 		self:_addMemoryUsage(entry._size, "array")
 		return item
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1116,6 +1118,7 @@ function FullCache:InsertSingle<T>(item:T):T
 	if not success then
 		Debugger:Log("error", "InsertSingle", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -1173,6 +1176,7 @@ function FullCache:InsertBatch(items:{T}):{T}
 		self:_resume()
 		return successfulItems
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1186,6 +1190,7 @@ function FullCache:InsertBatch(items:{T}):{T}
 	if not success then
 		Debugger:Log("error", "InsertBatch", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -1199,6 +1204,7 @@ function FullCache:Cleanup():()
 	local success, result = pcall(function()
 		self:_compactArray()
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1212,6 +1218,7 @@ function FullCache:Cleanup():()
 	if not success then
 		Debugger:Log("error", "Cleanup", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -1259,6 +1266,7 @@ function FullCache:SetMetadata(key:string|{any}, data:object):boolean
 		self:_memoryUpdate()
 		return true
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1272,6 +1280,7 @@ function FullCache:SetMetadata(key:string|{any}, data:object):boolean
 	if not success then
 		Debugger:Log("error", "SetMetadata", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -1301,6 +1310,7 @@ function FullCache:Set(key:string|{any}, value:T):T
 	self._mutex:lock()
 	local eventsToFire
 	local success, result = pcall(self._setInternal, self, key, value)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1312,8 +1322,9 @@ function FullCache:Set(key:string|{any}, value:T):T
 		end
 	end
 	if not success then
-		("Internal cache operation failed.\nKey: %s\nValue: %s\nError: %s")
-			:format(tostring(key), tostring(value), tostring(result))
+		Debugger:Log("error", "Set", ("Internal cache operation failed.\nKey: %s\nValue: %s\nError: %s")
+			:format(tostring(key), tostring(value), tostring(result)))
+		return nil
 	end
 	return result
 end
@@ -1340,6 +1351,7 @@ function FullCache:Update(key: string|{any}, updaterFn: (currentValue: T) -> T)
 		end
 		return newValue
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1353,6 +1365,7 @@ function FullCache:Update(key: string|{any}, updaterFn: (currentValue: T) -> T)
 	if not success then
 		Debugger:Log("error", "Update", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -1379,6 +1392,7 @@ function FullCache:Pin(key:string|{any}): boolean
 		end
 		return true
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1392,6 +1406,7 @@ function FullCache:Pin(key:string|{any}): boolean
 	if not success then
 		Debugger:Log("error", "Pin", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -1413,6 +1428,7 @@ function FullCache:Unpin(key:string|{any}): boolean
 			self._policy:insert(realKey)
 		end
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1426,6 +1442,7 @@ function FullCache:Unpin(key:string|{any}): boolean
 	if not success then
 		Debugger:Log("error", "Unpin", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -1440,6 +1457,7 @@ function FullCache:Get(key:string|{any}, SkipExpire:bool?):T?
 	local success, result = pcall(function()
 		return self:_getInternal(key, SkipExpire)
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1453,6 +1471,7 @@ function FullCache:Get(key:string|{any}, SkipExpire:bool?):T?
 	if not success then
 		Debugger:Log("error", "Get", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -1496,6 +1515,7 @@ function FullCache:GetOrLoad(key:string|{any}, loader:()->T, ttl: number?)
 	end
 	self._loading[realKey] = nil
 	self._loadSignals[realKey] = nil
+	local eventsToFire
 	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
@@ -1562,6 +1582,7 @@ function FullCache:DefineVirtual(key:string|{any}, computeFn:()->T)
 		end
 		self._virtuals[realKey] = computeFn
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1575,6 +1596,7 @@ function FullCache:DefineVirtual(key:string|{any}, computeFn:()->T)
 	if not success then
 		Debugger:Log("error", "DefineVirtual", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -1593,6 +1615,7 @@ function FullCache:Has(key:string|{any}):boolean
 		return self._dict[realKey] ~= nil 
 			or self._virtuals[realKey] ~= nil
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1606,6 +1629,7 @@ function FullCache:Has(key:string|{any}):boolean
 	if not success then
 		Debugger:Log("error", "Has", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -1639,6 +1663,7 @@ function FullCache:Remove(key:string|{any}):()
 		end
 		self:_RemoveInternal(realKey, false)
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1652,6 +1677,7 @@ function FullCache:Remove(key:string|{any}):()
 	if not success then
 		Debugger:Log("error", "Remove", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -1668,6 +1694,7 @@ function FullCache:Size(): number
 		end
 		return self._arrayCount + _dictSize(self._dict)
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1681,6 +1708,7 @@ function FullCache:Size(): number
 	if not success then
 		Debugger:Log("error", "Size", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -1732,6 +1760,7 @@ function FullCache:Clear():()
 		self._ttl = TTL.new(self, self._ttlCapacity, self._ttlFilter)
 		self._ttl:start()
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1745,6 +1774,7 @@ function FullCache:Clear():()
 	if not success then
 		Debugger:Log("error", "Clear", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -1768,6 +1798,7 @@ function FullCache:GetAll():{T}
 		end
 		return res
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1781,6 +1812,7 @@ function FullCache:GetAll():{T}
 	if not success then
 		Debugger:Log("error", "GetAll", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -1805,6 +1837,7 @@ function FullCache:ReadOnly(state:boolean)
 				:format(type(state)))
 		end
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1818,6 +1851,7 @@ function FullCache:ReadOnly(state:boolean)
 	if not success then
 		Debugger:Log("error", "ReadOnly", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -1835,6 +1869,7 @@ function FullCache:Pause()
 	local success, result = pcall(function()
 		self:_pause()
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1848,6 +1883,7 @@ function FullCache:Pause()
 	if not success then
 		Debugger:Log("error", "Pause", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -1865,6 +1901,7 @@ function FullCache:Resume()
 	local success, result = pcall(function()
 		self:_resume()
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1878,6 +1915,7 @@ function FullCache:Resume()
 	if not success then
 		Debugger:Log("error", "Resume", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -1935,6 +1973,7 @@ function FullCache:SetWithTTL(key:string|{any}, value:T, ttl:number):T
 	self._mutex:lock()
 	local eventsToFire
 	local success, result = pcall(self._setWithTTLInternal, self, key, value, ttl)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1948,6 +1987,7 @@ function FullCache:SetWithTTL(key:string|{any}, value:T, ttl:number):T
 	if not success then
 		Debugger:Log("error", "SetWithTTL", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -1989,6 +2029,7 @@ function FullCache:RefreshTTL(key, extraSeconds)
 		self._ttl:push(realKey, newExpire)
 		return true
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -2002,6 +2043,7 @@ function FullCache:RefreshTTL(key, extraSeconds)
 	if not success then
 		Debugger:Log("error", "RefreshTTL", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -2041,6 +2083,7 @@ function FullCache:Touch(key:string|{any}, timeBoost:number?):boolean
 			return false
 		end
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -2054,6 +2097,7 @@ function FullCache:Touch(key:string|{any}, timeBoost:number?):boolean
 	if not success then
 		Debugger:Log("error", "Touch", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -2087,6 +2131,7 @@ function FullCache:ClearExpired()
 		self:_compactArray()
 		return removed
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -2100,6 +2145,7 @@ function FullCache:ClearExpired()
 	if not success then
 		Debugger:Log("error", "ClearExpired", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -2138,6 +2184,7 @@ function FullCache:Keys():{string|{any}}
 		end
 		return out
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -2151,6 +2198,7 @@ function FullCache:Keys():{string|{any}}
 	if not success then
 		Debugger:Log("error", "Keys", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -2176,6 +2224,7 @@ function FullCache:Values():{T}
 		end
 		return out
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -2189,6 +2238,7 @@ function FullCache:Values():{T}
 	if not success then
 		Debugger:Log("error", "Values", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -2213,6 +2263,7 @@ function FullCache:ForEach(fn:(key,value)->())
 			end
 		end
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -2226,6 +2277,7 @@ function FullCache:ForEach(fn:(key,value)->())
 	if not success then
 		Debugger:Log("error", "ForEach", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -2336,6 +2388,7 @@ function FullCache:BulkSet(entries:{[string|{any}]:T}, options:{parallel:number?
 		self:_memoryUpdate()
 		self:_resume()
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -2349,6 +2402,7 @@ function FullCache:BulkSet(entries:{[string|{any}]:T}, options:{parallel:number?
 	if not success then
 		Debugger:Log("error", "BulkSet", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -2383,6 +2437,7 @@ function FullCache:BulkRemove(keys:{string|{any}})
 		end
 		self:_resume()
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -2396,6 +2451,7 @@ function FullCache:BulkRemove(keys:{string|{any}})
 	if not success then
 		Debugger:Log("error", "BulkRemove", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -2474,6 +2530,7 @@ function FullCache:BulkGet(keys:{string|{any}}, options:{parallel:number?}):{T?}
 		self._metrics.misses += (#keys - #accessedKeys)
 		return results
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -2487,6 +2544,7 @@ function FullCache:BulkGet(keys:{string|{any}}, options:{parallel:number?}):{T?}
 	if not success then
 		Debugger:Log("error", "BulkGet", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -2581,6 +2639,7 @@ function FullCache:Resize(newMax:number)
 			self:_evictArrayOne()
 		end
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -2594,6 +2653,7 @@ function FullCache:Resize(newMax:number)
 	if not success then
 		Debugger:Log("error", "Resize", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -2637,6 +2697,7 @@ function FullCache:SetPolicy(policyName: string)
 			end
 		end
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -2650,6 +2711,7 @@ function FullCache:SetPolicy(policyName: string)
 	if not success then
 		Debugger:Log("error", "SetPolicy", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -2672,6 +2734,7 @@ function FullCache:SetMemoryBudget(budget:number)
 		self._memoryBudget = budget
 		self:_pruneByMemory(0)
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -2685,6 +2748,7 @@ function FullCache:SetMemoryBudget(budget:number)
 	if not success then
 		Debugger:Log("error", "SetMemoryBudget", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -2713,6 +2777,7 @@ function FullCache:Watch():(() -> TypeDef.WatchEvent<T>?, () -> ())
 		end
 		return {iterator, cleanup} 
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -2788,6 +2853,7 @@ function FullCache:ResetMetrics()
 		self._metrics.evictions = 0
 		self._metrics.startTime = self:_getTime()
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -2801,6 +2867,7 @@ function FullCache:ResetMetrics()
 	if not success then
 		Debugger:Log("error", "ResetMetrics", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -2918,6 +2985,7 @@ function FullCache:RemoveByPattern(patOrFn:string|{string}|((key:string|any) -> 
 		end
 		return 0
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -2931,6 +2999,7 @@ function FullCache:RemoveByPattern(patOrFn:string|{string}|((key:string|any) -> 
 	if not success then
 		Debugger:Log("error", "RemoveByPattern", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -2963,6 +3032,7 @@ function FullCache:RemoveNamespace(prefix:string):number
 		end
 		return 0
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -2976,6 +3046,7 @@ function FullCache:RemoveNamespace(prefix:string):number
 	if not success then
 		Debugger:Log("error", "RemoveNamespace", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -3013,6 +3084,7 @@ function FullCache:ManualSweep(options:{expireOnly:boolean?, enforceMemory:boole
 			end
 		end
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -3026,6 +3098,7 @@ function FullCache:ManualSweep(options:{expireOnly:boolean?, enforceMemory:boole
 	if not success then
 		Debugger:Log("error", "ManualSweep", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -3241,6 +3314,7 @@ function FullCache:Restore(snapshot:TypeDef.SnapshotData<T>)
 				:format(err))
 		end
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -3254,6 +3328,7 @@ function FullCache:Restore(snapshot:TypeDef.SnapshotData<T>)
 	if not success then
 		Debugger:Log("error", "Restore", ("Internal failure: %s\n%s")
 			:format(tostring(result), debug.traceback(nil, 2)))
+		return nil
 	end
 	return result
 end
@@ -3347,6 +3422,7 @@ function FullCache:Transaction(transactionFn: (cache: TypeDef.FullCache) -> any)
 			end
 		end
 	end
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -3360,6 +3436,7 @@ function FullCache:Transaction(transactionFn: (cache: TypeDef.FullCache) -> any)
 	if not success then
 		Debugger:Log("error", "ResetMetrics", ("Internal failure: %s\n%s")
 			:format(tostring(results), debug.traceback(nil, 2)))
+		return nil
 	end
 	if type(results) == "table" and #results > 0 then
 		return unpack(results)

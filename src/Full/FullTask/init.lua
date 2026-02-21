@@ -429,6 +429,7 @@ function FullTask:Submit(taskFn: (ctx: TypeDef.TaskExecutionContext) -> ...any, 
 	local success, result = pcall(function()
 		return self:_internalSubmit(taskFn, options)
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -468,6 +469,7 @@ function FullTask:_enqueueTask(_Task)
 	local success, result = pcall(function()
 		self:_unsafeEnqueue(_Task)
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -549,6 +551,7 @@ function FullTask:_processQueue()
 		rTask._heapNode = self.priorityQueue:insert(newHeapKey, rTask)
 	end
 	self.metrics.tasksInQueue = self.priorityQueue.size
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -620,7 +623,8 @@ function FullTask:_executeTaskFinal(_Task)
 			end
 			_unsafeCleanup(_Task)
 			self:_queueEvent(self.signals.taskFailed, _Task) 
-			if #self._eventQueue > 0 then
+			local eventsToFire
+	if #self._eventQueue > 0 then
 				eventsToFire = self._eventQueue
 				self._eventQueue = {}
 			end
@@ -687,7 +691,8 @@ function FullTask:_executeTaskFinal(_Task)
 				shouldProcessQueue = true
 			end
 		end
-		if #self._eventQueue > 0 then
+		local eventsToFire
+	if #self._eventQueue > 0 then
 			eventsToFire = self._eventQueue
 			self._eventQueue = {}
 		end
@@ -813,6 +818,7 @@ function FullTask:CancelTask(taskId: string, force: boolean?)
 	local success, result = pcall(function()
 		return self:_internalCancelTask(taskId, force)
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -936,6 +942,7 @@ function FullTask:_processScheduledTasks()
 			end
 		end
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -991,7 +998,8 @@ function FullTask:_processWaitingTasks()
 			_Task:setState(TaskState.FAILED)
 			self.runningTasks[_Task.id] = nil
 			self:_queueEvent(self.signals.taskFailed, _Task, tostring(result))
-			if #self._eventQueue > 0 then
+			local eventsToFire
+	if #self._eventQueue > 0 then
 				eventsToFire = self._eventQueue
 				self._eventQueue = {}
 			end
@@ -1172,6 +1180,7 @@ function FullTask:AbortTask(id)
 	local pcall_results = { pcall(function()
 		return self:_internalAbortTask(id)
 	end) }
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1449,6 +1458,7 @@ function FullTask:Destroy()
 	local success, result = pcall(function()
 		return self:_internalDestroy()
 	end)
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1749,6 +1759,7 @@ function FullTask:Transaction(transactionFn: (tx: TypeDef.FullTask) -> ...any)
 		return table.unpack(tx_fn_pcall_results, 2, #tx_fn_pcall_results)
 	end) }
 	local tx_success = tx_pcall_results[1]
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1793,6 +1804,7 @@ function FullTask:BulkCancel(taskIds: {string}, force: boolean?)
 	local pcall_results = { pcall(function()
 		return self:_internalBulkCancel(taskIds, force)
 	end) }
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1865,6 +1877,7 @@ function FullTask:CancelByPattern(patOrFn: string | ((task: Task) -> boolean), f
 	local pcall_results = { pcall(function()
 		return self:_internalCancelByPattern(patOrFn, force)
 	end) }
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}

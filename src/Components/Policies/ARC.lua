@@ -84,6 +84,7 @@ function ARC.new(maxSize, manager)
 end
 
 local function replace(self, key)
+	local victimKey = nil
 	if not self._T1:isEmpty() and 
 		(self._T1.size > self._p or 
 			(self._B2_lookup[key] and self._T1.size == self._p)) then
@@ -92,6 +93,7 @@ local function replace(self, key)
 			self._T1_lookup[victim.key] = nil
 			self._B1_lookup[victim.key] = victim
 			self._B1:pushFront(victim)
+			victimKey = victim.key
 		end
 	else
 		local victim = self._T2:popBack()
@@ -99,9 +101,11 @@ local function replace(self, key)
 			self._T2_lookup[victim.key] = nil
 			self._B2_lookup[victim.key] = victim
 			self._B2:pushFront(victim)
+			victimKey = victim.key
 		end
 	end
 	self._cacheSize = self._cacheSize - 1
+	return victimKey
 end
 
 function ARC:access(key)
@@ -132,7 +136,7 @@ function ARC:insert(key)
 		self._B1:remove(b1_node)
 		self._B1_lookup[key] = nil
 		if self._cacheSize >= self._maxSize then
-			replace(self, key)
+			evictedKey = replace(self, key)
 		end
 		local new_node = {key = key}
 		self._T2:pushFront(new_node)
@@ -147,7 +151,7 @@ function ARC:insert(key)
 		self._B2:remove(b2_node)
 		self._B2_lookup[key] = nil
 		if self._cacheSize >= self._maxSize then
-			replace(self, key)
+			evictedKey = replace(self, key)
 		end
 		local new_node = {key = key}
 		self._T2:pushFront(new_node)
@@ -180,7 +184,7 @@ function ARC:insert(key)
 				self._B2_lookup[lru_b2.key] = nil
 			end
 		end
-		replace(self, key)
+		evictedKey = replace(self, key)
 	end
 	local new_node = {key = key}
 	self._T1:pushFront(new_node)

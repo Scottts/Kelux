@@ -151,6 +151,7 @@ end
 
 function FullState:_releaseLock()
 	local eventsToFire
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}

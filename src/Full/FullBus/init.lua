@@ -114,6 +114,7 @@ end
 
 function FullBus:_releaseLock()
 	_tryCallMethod(self._lock, UNLOCK_NAMES) 
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		local eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1977,6 +1978,7 @@ function FullBus:Transaction(transactionFn: (txBus: FullBus) -> any): (boolean, 
 		Debugger:Log("error", "Transaction", ("Failed applying transaction journal: %s. Bus state might be inconsistent.")
 			:format(tostring(applyError)))
 	end
+	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}

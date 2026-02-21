@@ -69,7 +69,9 @@ function LRU:insertBatch(keysToInsert)
 		return evictedKeys
 	end
 	local nodesToRelinkInOrder = {}
+	local processedKeys = {}
 	for _, key in ipairs(keysToInsert) do
+		if processedKeys[key] then continue end
 		local node = self._nodes[key]
 		if node then
 			unlink(self, node)
@@ -131,7 +133,8 @@ end
 
 function LRU:restore(state)
 	self:clear()
-	for _, key in ipairs(state.order) do
+	for i = #state.order, 1, -1 do
+		local key = state.order[i]
 		local node = {key = key}
 		self._nodes[key] = node
 		linkHead(self, node)
