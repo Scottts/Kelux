@@ -86,17 +86,12 @@ function LFU:insert(key)
 		local victimNode = lfuList and lfuList.tail
 		if not victimNode then return nil end
 		local victimKey = victimNode.key
-		local victimEntry = self._keyData[victimKey]
-		local candidateFreq = self._cms:Estimate(key)
-		if not victimEntry or candidateFreq <= victimEntry.freq then
-			return nil
-		end
 		lfuList:popBack()
 		self._keyData[victimKey] = nil
 		if lfuList:isEmpty() then
 			self._freqLists[self._minFreq] = nil
 		end
-		self._count = self._count - 1
+		self._count -= 1
 		evictedKey = victimKey
 	end
 	entry = {freq = 1, node = {key = key}}
@@ -105,7 +100,7 @@ function LFU:insert(key)
 	list:pushFront(entry.node)
 	self._freqLists[1] = list
 	self._minFreq = 1
-	self._count = self._count + 1
+	self._count += 1
 	return evictedKey
 end
 
@@ -128,7 +123,7 @@ function LFU:insertBatch(keysToInsert)
 			list:pushFront(entry.node)
 			self._freqLists[1] = list
 
-			self._count = self._count + 1
+			self._count += 1
 			newKeysCount = newKeysCount + 1
 		end
 	end
@@ -158,7 +153,7 @@ function LFU:insertBatch(keysToInsert)
 		end
 		local victimKey = victimNode.key
 		self._keyData[victimKey] = nil
-		self._count = self._count - 1
+		self._count -= 1
 		table.insert(evictedKeys, victimKey)
 		if lfuList:isEmpty() then
 			self._freqLists[self._minFreq] = nil
@@ -182,7 +177,7 @@ function LFU:evict()
 	local victim = list:popBack()
 	local key = victim.key
 	self._keyData[key] = nil
-	self._count = self._count - 1
+	self._count -= 1
 	if list:isEmpty() then
 		self._freqLists[self._minFreq] = nil
 		local newMin = math.huge
@@ -223,7 +218,7 @@ function LFU:remove(key)
 		end
 	end
 	self._keyData[key] = nil
-	self._count = self._count - 1
+	self._count -= 1
 end
 
 function LFU:snapshot()
@@ -251,7 +246,7 @@ function LFU:restore(state)
 			local node = {key = key}
 			list:pushFront(node)
 			self._keyData[key] = {freq = freq, node = node}
-			self._count = self._count + 1
+			self._count += 1
 		end
 		self._freqLists[freq] = list
 	end

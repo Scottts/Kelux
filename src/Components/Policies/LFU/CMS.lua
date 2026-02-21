@@ -117,7 +117,12 @@ function module:Merge(other)
 		warn("Cannot merge Count-Min Sketches with different dimensions")
 		return false
 	end
-
+	for i = 1, self.depth do
+		if self.salts[i] ~= other.salts[i] then
+			warn("Cannot merge Count-Min Sketches generated with different hash salts.")
+			return false
+		end
+	end
 	for i = 1, self.depth do
 		for j = 1, self.width do
 			self.table[i][j] = self.table[i][j] + other.table[i][j]

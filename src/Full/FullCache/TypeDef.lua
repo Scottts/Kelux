@@ -1,525 +1,765 @@
 -- Annotations ---------------------------------------------------------------------------------------------
-export type Callback = (...any) -> ()
-export type Connection = {
-	Callback:Callback,
-	Priority:number,
-	Once:boolean,
-	Filter:((any) -> boolean)?,
-	Connected:boolean,
-	EventName:string,
-	_bus:FullBus,
+export type FIFOState = {queue: {string}}
+export type LRUState = {head: string?, tail: string?, nodes: {[string]: any}}
+export type LFUState = {minFreq: number, freqMap: {[number]: {string}}}
+export type RRState = {queue: {string}}
+export type PolicyState = FIFOState | LRUState | LFUState | RRState
+export type CacheEntry<T> = {
+	value: T,
+	expires: number?,
+	pinned: boolean?,
 }
-export type SubscriptionGroup = {
-	Add:(self:SubscriptionGroup, handle:DisconnectHandle) -> DisconnectHandle,
-	Destroy:(self:SubscriptionGroup) -> (),
-	Count:(self:SubscriptionGroup) -> number,
-	_handles: {DisconnectHandle},
+export type EvictionInfo<T> = {
+	kind: "array" | "dict",
+	key: string?,
+	value: T,
+	expired: boolean,
 }
-export type SubscribeOptions = {
-	Priority:number?,
-	Once:boolean?,
-	Filter:((any) -> boolean)?,
-	Async:boolean?,
-	Group:SubscriptionGroup?,
+export type MemoryChangeInfo = {
+	used: number,
+	budget: number,
+	percentUsed: number,
 }
-export type SubscriberInfo = {
-	Callback: Callback,
-	Priority: number,
-	Once: boolean,
-	Filter: ((any) -> boolean)?,
-	HandlerType: "Debounce" | "Batch" | "Throttle" | nil,
-	WaitTime: number?,
-	LastCallTime: number?,
+export type WatchEvent<T> = {
+	event: "SET" | "REMOVE" | "EVICT" | "EXPIRE",
+	key: string | {any},
+	value: T?,
+	timestamp: number,
+}
+export type SnapshotData<T> = {
+	array: {T},
+	dict: {[string]: CacheEntry<T>},
+	maxobj: number,
+	policyName: string,
+	policyState: PolicyState,
+	memoryBudget: number,
+	memoryUsage: number,
+	arrayMemoryUsage: number,
+	dictMemoryUsage: number,
+	maxEntrySizeBytes: number?,
+	formatType: string?,
+	timestamp: number,
 }
 export type CreateOpts = {
-	EnableDebug:boolean?,
-	MaxListenersPerEvent:number?,
-	EnableWildcards:boolean?,
-	AsyncByDefault:boolean?,
-	StatsPrecision:number?,
-	TimelineSize:number?,
-	HistoryTreeOrder:number?,
-	EnableDeduplication:boolean?,
-	DeduplicationCacheSize:number?,
-	DeduplicationCmsEpsilon:number?,
-	DeduplicationCmsDelta:number?,
+	Mode: string,
+	Policy: string, 
+	MemoryBudget: number, 
+	MaxSerializedSize: number, 
+	FormatType: string,
+	ReadOnly: boolean?,
+	EstimateSizeFunction: ((any) -> number)?, 
+	UseCompression:string?,
+	TTLCapacity: number,
+	TTLFilter: string?,
+	TTLMode: string?,
+	TTLUseClock: boolean?,
 }
-export type Middleware = (eventName:string, ...any) -> (...any)
-export type BusStats = {
-	Destroyed:boolean?,
-	TotalEvents:number,
-	TotalSubscribers:number,
-	NormalSubscriptions:number,
-	PrefixSubscriptions:number,
-	TimeRangeSubscriptions:number,
-	WildcardSubscriptions:number,
-	StickyEvents:number,
-	EventCounts:{[string]:number},
-	SubscriberCounts:{[string]:number},
-	EventHistory:{[string]:number},
-	UniqueEventNamesEstimate:number,
-	TimelineEventCount:number,
-	TimelineWindowSize:number,
-	PendingAuditLogSize:number,
-	LastAuditRoot:string?,
-}
-export type DisconnectHandle = {
-	Disconnect:(self:DisconnectHandle) -> (),
-}
-export type FullBus = {
-	-- Lifecycle
-	Destroy:typeof(
+export type FullCache<T> = {
+	InsertSingle: typeof(
 		--[[
-			Completely removes and cleans up the event bus instance.
-			Stops all background processes and releases memory.
-			The bus cannot be used after being destroyed.
-		]]
-		function(self:FullBus) end
-	),
-	-- Subscriptions
-	Subscribe:typeof(
-		--[[
-			Subscribes a callback function to a specific event name.
-			Supports <strong>glob patterns</strong> if EnableWildcards is true.
+			Inserts a single object into the array section of the cache. 
 			
-			<code>local handle = bus:Subscribe("Player.Joined", onPlayerJoined)
+			<code>cache:InsertSingle("Pen")
 		]]
-		function(self:FullBus, eventName:string, callback:Callback, options:SubscribeOptions?):DisconnectHandle end
+		function(self: FullCache<T>, item: T): T end
 	),
-	SubscribeOnce:typeof(
+	InsertBatch: typeof(
 		--[[
-			Subscribes a callback function that will only run <strong>one time</strong>
-			and then automatically disconnect.
+			Inserts multiple values into the array section of the cache. 
 			
-			<code>bus:SubscribeOnce("Game.Start", startGameLogic)
+			<code>cache:InsertBatch({"Pen", "Pineapple", "Apple", "Pen"})
 		]]
-		function(self:FullBus, eventName:string, callback:Callback, options:SubscribeOptions?):DisconnectHandle end
+		function(self: FullCache<T>, items: {T}): {T} end
 	),
-	SubscribeByPrefix:typeof(
+	Set: typeof(
 		--[[
-			Subscribes a callback to any event name that <strong>starts with</strong>
-			the given prefix string.
-			e.g., <code>bus:SubscribeByPrefix("Player.")</code> matches "Player.Joined", "Player.Left".
+			Set a value under "key", without TTL. 
+			Later "Get(key)" will return the raw "value".
 			
-			<code>bus:SubscribeByPrefix("Entity.", handleEntityEvent)
+			<code>cache:Set("key", "value")
 		]]
-		function(self:FullBus, prefix:string, callback:Callback, options:SubscribeOptions?):DisconnectHandle end
+		function(self: FullCache<T>, key: string|{any}, value: T): T end
 	),
-	SubscribeTimeRange:typeof(
+	SetMetadata: typeof(
 		--[[
-			Subscribes a callback to an event, but only fires if the
-			event is published within a specific time-of-day range.
-			Time is expressed in seconds since midnight (0 to 86399).
+			Sets or updates a metadata table for an existing key.
+			The metadata must be a JSON-serializable table. Its size
+			is calculated and added to the cache's memory budget.
+			Returns true if the metadata was successfully set.
+
+			<code>local success = cache:SetMetadata("key1", {contentType = "image/png", version = "v2"}) 
+		]]
+		function(self: FullCache<T>, key: string|{any}, data: any): boolean end
+	),
+	Get: typeof(
+		--[[
+			Returns the value for a key, if it exists and hasn’t expired. 
+			Automatically removes expired TTL entries. 
 			
-			<code>bus:SubscribeTimeRange("Tick", 3600, 7200, handleNightlyTick)
+			<code>local username = cache:Get("username_123")
 		]]
-		function(self:FullBus, eventName:string, low:number, high:number, callback:Callback, options:SubscribeOptions?):DisconnectHandle end
+		function(self: FullCache<T>, key: string|{any}): T? end
 	),
-	SubscribeDebounced:typeof(
+	GetMetadata: typeof(
 		--[[
-			Subscribes a callback that only fires after 'waitTime' seconds have
-			passed without another event being published. Uses arguments from the
-			last event in the quiet period.
+			Retrieves a deep copy of the metadata for a given key.
+			Returns nil if the key does not exist or has no metadata. 
+
+			<code>local meta = cache:GetMetadata("key1")
+			if meta then
+				print("Version:", meta.version)
+			end
 		]]
-		function(self:FullBus, eventName:string, waitTime:number, callback:Callback, options:SubscribeOptions?):DisconnectHandle end
+		function(self: FullCache<T>, key: string|{any}): any? end
 	),
-	SubscribeBatched:typeof(
+	Update: typeof(
 		--[[
-			Subscribes a callback that collects all events published over 'waitTime'
-			seconds and fires the callback with a table of all event argument sets.
-		]]
-		function(self:FullBus, eventName:string, waitTime:number, callback:Callback, options:SubscribeOptions?):DisconnectHandle end
-	),
-	SubscribeThrottled:typeof(
-		--[[
-			Subscribes a callback that fires immediately on the first event,
-			but then ignores all subsequent events for 'waitTime' seconds.
-			(Unlike debounce, which waits for a quiet period).
-		]]
-		function(self:FullBus, eventName:string, waitTime:number, callback:Callback, options:SubscribeOptions?):DisconnectHandle end
-	),
-	SubscribeToAll:typeof(
-		--[[
-			Subscribes a callback to <strong>all</strong> events published on the bus.
-			This is a "catch-all" that fires for every event,
-			ideal for global logging or debugging.
-			
-			<code>bus:SubscribeToAll(function(eventName, ...)
-				print("Event fired:", eventName)
+			Atomically updates a value for a key by applying a function.
+			The entire operation (get, modify, set) is performed within a single lock.
+			The function receives the current value and should return the new value.
+			If the function returns nil, the key is removed.
+
+			<code>-- Atomically increment a counter without race conditions
+			cache:Update("player_score", function(currentScore)
+				return (currentScore or 0) + 1
 			end)
 		]]
-		function(self:FullBus, callback:Callback, options:SubscribeOptions?):DisconnectHandle end
+		function(self: FullCache<T>, key: string|{any}, updaterFn: (currentValue: T) -> T): T? end
 	),
-	CreateChildBus:typeof(
+	Pin: typeof(
 		--[[
-			Creates a new, namespaced event bus.
-			Events published on the child bus are automatically
-			prefixed and published on the parent.
-			
-			<code>local playerBus = bus:CreateChildBus("Player.123")
-			-- This publishes "Player.123.Joined" on the parent bus
-			playerBus:Publish("Joined")
+			Marks a key as non-evictable.  Pinned items are ignored by
+			all eviction policies and will not be removed due to memory
+			pressure or size limits.  Returns true if the key exists and was pinned.
+
+			<code>cache:Pin("important_config")
 		]]
-		function(self:FullBus, prefix:string):FullBus end
+		function(self: FullCache<T>, key: string|{any}): boolean end
 	),
-	Request:typeof(
+	Unpin: typeof(
 		--[[
-			Publishes an event and yields until a 'Reply'
-			is received or a timeout occurs. Implements a
-			request/response pattern.
-			
-			<code>local ok, data = bus:Request("GetPlayerData", 5, 123) -- 5 sec timeout, player ID 123
+			Unmarks a key as non-evictable, making it eligible for
+			eviction again according to the cache's policy.  Returns
+			true if the key exists and was unpinned. 
+
+			<code>cache:Unpin("important_config")
 		]]
-		function(self:FullBus, eventName:string, timeout:number?, ...:any): (boolean, ...any) end
+		function(self: FullCache<T>, key: string|{any}): boolean end
 	),
-	Reply:typeof(
-		--[[
-			Subscribes to a 'Request' event and provides a response.
-			The callback's return values are sent back to the requester.
+	GetOrLoad: typeof(
+		--[[ 
+			Gets a value if present;  otherwise calls loader(), caches the result, and returns it.
+			Optionally accepts ttl in seconds. 
 			
-			<code>bus:Reply("GetPlayerData", function(playerId)
-				return DB:Get(playerId)
-			end)
+			<code>local val = cache:GetOrLoad("user_42", function()
+				return LoadUserFromDatabase(42)
+			end, 30)  -- cached for 30s
 		]]
-		function(self:FullBus, eventName:string, callback:Callback, options:SubscribeOptions?):DisconnectHandle end
+		function(self: FullCache<T>, key: string|{any}, loader: () -> T, ttl: number?): T end
 	),
-	Disconnect:typeof(
+	Has: typeof(
 		--[[
-			Manually disconnects a subscription handle.
+			Checks whether a key exists and hasn’t expired.
+			Cleans up expired TTL values in the process. 
 			
-			<code>bus:Disconnect(handle)
+			<code>if cache:Has("username_123") then
+				print("Key is still valid!")
+			end
 		]]
-		function(self:FullBus, connection:Connection) end
+		function(self: FullCache<T>, key: string|{any}): boolean end
 	),
-	Unsubscribe:typeof(
+	Remove: typeof(
 		--[[
-			Quality-of-life function to disconnect subscriptions by event name and 
-			the exact callback function used for subscription. Disconnects all 
-			matching connections.
+			Deletes a key-value pair from the dictionary section, <em>regardless of its state.</em> 
+			
+			<code>cache:Remove("username_123")
 		]]
-		function(self:FullBus, eventName:string, callback:Callback) end
+		function(self: FullCache<T>, key: string|{any}) end
 	),
-	WaitFor:typeof(
+	Size: typeof(
 		--[[
-			Yields the current coroutine until the specified event fires
-			or an optional timeout is reached.
-			
-			<code>local ok, player = bus:WaitFor("Player.Joined", 5)
+			Returns the combined count of array and dictionary entries.
+			TTL-expired entries are cleared before counting. 
+
+			<code>print("Total cache size:", cache:Size())
 		]]
-		function(self:FullBus, eventName:string, timeout:number?): (boolean, ...any) end
+		function(self: FullCache<T>): number end
 	),
-	-- Publishing
-	Publish:typeof(
+	Clear: typeof(
 		--[[
-			Publishes an event to all matching subscribers.
-			Callbacks are executed based on 'AsyncByDefault' config.
-			May be dropped if a <strong>rate limit</strong> is exceeded.
+			Completely resets the cache’s internal storage.
+			Also resets the eviction policy to default state. 
 			
-			<code>bus:Publish("Player.Joined", player)
+			<code>cache:Clear()
 		]]
-		function(self:FullBus, eventName:string, ...:any) end
+		function(self: FullCache<T>) end
 	),
-	PublishAsync:typeof(
+	Cleanup: typeof(
 		--[[
-			Publishes an event to all matching subscribers <strong>in parallel</strong>.
-			This function will <strong>wait</strong> until all callbacks finish.
-			May be dropped if a rate limit is exceeded.
+			Removes all nil entries in the array section.
+			This is a maintenance function mostly for the FIFO array.
 			
-			<code>bus:PublishAsync("Data.Save", player)
+			<code>cache:Cleanup()
 		]]
-		function(self:FullBus, eventName:string, ...:any) end
+		function(self: FullCache<T>) end
 	),
-	PublishSticky:typeof(
+	GetAll: typeof(
 		--[[
-			Publishes an event and caches the arguments. New subscribers to this
-			event will immediately receive the cached arguments (replayed).
+			Returns a shallow copy of all items  stored in both array and dictionary sections.
+			TTL-expired items are removed first. 
 			
-			<code>bus:PublishSticky("Game.State", "RUNNING")
+			<code>for _, item in ipairs(cache:GetAll()) do
+				print(item)
+			end
 		]]
-		function(self:FullBus, eventName:string, ...:any) end
-	),
-	RemoveSticky:typeof(
-		--[[
-			Removes a cached sticky event published with PublishSticky.
-			New subscribers will no longer receive this event
-			on connection.
-			
-			<code>bus:RemoveSticky("Game.State")
-		]]
-		function(self:FullBus, eventName:string) end
-	),
-	PublishByPrefix:typeof(
-		--[[
-			Publishes an event to all subscribers who are subscribed
-			to a prefix of the given event name.
-			e.g., <code>bus:PublishByPrefix("Player.Joined")</code> will fire subs for
-			"P", "Player", "Player.", and "Player.Joined".
-			
-			<code>bus:PublishByPrefix("System.Shutdown")
-		]]
-		function(self:FullBus, eventName:string, ...:any) end
-	),
-	-- Configuration & Middleware
-	AddMiddleware:typeof(
-		--[[
-			Adds a middleware function that intercepts all published
-			events <strong>before</strong> they are sent to subscribers.
-			
-			<code>bus:AddMiddleware(loggerMiddleware)
-		]]
-		function(self:FullBus, middlewareFunc:Middleware) end
-	),
-	RemoveMiddleware:typeof(
-		--[[
-			Removes a specific middleware function that was
-			previously added with AddMiddleware.
-			
-			<code>bus:RemoveMiddleware(loggerMiddleware)
-		]]
-		function(self:FullBus, middlewareFunc:Middleware) end
-	),
-	SetEventRateLimit:typeof(
-		--[[
-			Applies a rate limit to a specific event name using a <strong>Token Bucket</strong>.
-			
-			<strong>@param eventName</strong> Event to limit
-			<strong>@param refillRate</strong> Tokens to add per second
-			<strong>@param capacity</strong> Maximum tokens the bucket can hold
-			
-			<code>bus:SetEventRateLimit("Chat.Message", 5, 10) -- 5 messages/sec, burst up to 10
-		]]
-		function(self:FullBus, eventName:string, refillRate:number, capacity:number) end
-	),
-	SetDebug:typeof(
-		--[[
-			Enables or disables <strong>verbose debug warnings</strong>.
-			
-			<code>bus:SetDebug(true)
-		]]
-		function(self:FullBus, enabled:boolean) end
-	),
-	-- Cleanup
-	Clear:typeof(
-		--[[
-			Removes all subscribers for a <strong>specific</strong> event name.
-			
-			<code>bus:Clear("Player.Joined")
-		]]
-		function(self:FullBus, eventName:string) end
-	),
-	ClearAll:typeof(
-		--[[
-			Removes <strong>all</strong> subscribers from the event bus.
-			
-			<code>bus:ClearAll()
-		]]
-		function(self:FullBus) end
-	),
-	-- Introspection & New Algorithm Features
-	GetStats:typeof(
-		--[[
-			Returns a table of statistics about the event bus.
-			
-			<code>local stats = bus:GetStats()
-		]]
-		function(self:FullBus):BusStats end
-	),
-	GetEventHistoryRange:typeof(
-		--[[
-			Returns a log of all events published within a given
-			<code>os.clock()</code> time range.
-			
-			<strong>@return</strong> <code>{{key:number, value:{Name:string, Args:{any}}}</code>
-			
-			<code>local history = bus:GetEventHistoryRange(startTime, endTime)
-		]]
-		function(self:FullBus, startTime:number, endTime:number):{any} end
-	),
-	GetEventProof:typeof(
-		--[[
-			Returns the Merkle Proof for an event at a given index
-			(based on its position in the log when the tree was built).
-			
-			<code>local proof = bus:GetEventProof(5)
-		]]
-		function(self:FullBus, index:number):{any}? end
-	),
-	GetPendingAuditLog:typeof(
-		--[[
-			Returns a copy of the current event log, <strong>before</strong> it
-			has been built into an audit tree.
-			
-			<code>local pending = bus:GetPendingAuditLog()
-		]]
-		function(self:FullBus):{string} end
-	),
-	BuildAuditTree:typeof(
-		--[[
-			Consumes the pending event log, builds a Merkle Tree,
-			and returns the <strong>root hash</strong>. Clears the pending log.
-			
-			<code>local rootHash = bus:BuildAuditTree()
-		]]
-		function(self:FullBus):string? end
-	),
-	GetAuditRoot:typeof(
-		--[[
-			Gets the <strong>root hash</strong> of the <strong>last</strong> built audit tree.
-			
-			<code>local lastRoot = bus:GetAuditRoot()
-		]]
-		function(self:FullBus):string? end
-	),
-	VerifyWithLastRoot:typeof(
-		--[[
-			Verifies if a given leaf (event string) and proof
-			match the last built Merkle Tree root.
-			
-			<code>local isValid = bus:VerifyWithLastRoot(proof, leafData)
-		]]
-		function(self:FullBus, proof:{any}, leafData:string):boolean end
+		function(self: FullCache<T>): {T} end
 	),
 	ReadOnly: typeof(
 		--[[
-			Enables or disables read-only mode. When enabled,
-			all methods that modify the bus state (Publish, Subscribe,
-			Disconnect, Clear, etc.) will be disabled.
+			Enables or disables read-only mode, freezing and restoring the cache.  All mutator methods
+			<strong>(e.g. "Set", 'Remove', "Clear")</strong> will be disabled, and the TTL service
+			will be paused or continued to prevent automatic expirations, and the TTL service is resumed. 
 
-			<code>bus:ReadOnly(true) -- Enable read-only
-			bus:ReadOnly(false) -- Disable read-only
+			<code>cache:ReadOnly(true) -- This will enable read-only mode
+			task.wait(5)
+			cache:ReadOnly(false) -- This will disable read-only mode
 		]]
-		function(self: FullBus, state:boolean) end
+		function(self: FullCache<T>, state:boolean) end
 	),
-	-- Signals
-	OnPublish: typeof(
+	Prefetch: typeof(
 		--[[
-			Connects a callback that runs whenever an event is successfully
-			published (after middleware, before subscribers are called).
-			Callback receives: (eventName:string, args:{any})
+			Asynchronously gets a value if present; otherwise calls loader()
+			in the background, caches the result, and returns immediately.
+			This is a non-blocking method for pre-warming the cache. 
+
+			<code>cache:Prefetch("user_42", function()
+				return LoadUserFromDatabase(42)
+			end, 30)  -- fetched in background and cached for 30s
+		]]
+		function(self: FullCache<T>, key: string|{any}, loader: ()->T, ttl: number?) end
+	),
+	RemoveByPattern: typeof(
+		--[[
+			Removes all dictionary entries whose keys match a given pattern or satisfy a predicate function.
+			This method supports several matching strategies with different performance characteristics. 
+
+			<strong>By Glob Pattern (High-Performance)...</strong>
+			Removes keys using a fast, Trie-based search when a string or table of strings with a glob ('*') is provided. 
+			This is the recommended method for optimal performance. 
 			
-			<code>bus:OnPublish(function(eventName, args)
-				print("Event Published:", eventName)
+			<code>-- Remove all keys within the 'users:session' namespace
+			cache:RemoveByPattern("users:session:*")
+			-- Remove multiple glob patterns at once
+			cache:RemoveByPattern({"users:*:tmp", "sessions:old:*"})
+			</code>
+
+			<strong>By Predicate Function...</strong>
+			Removes keys for which the given function returns true.
+			Supports both string and table keys. 
+			
+			<code>cache:RemoveByPattern(function(key)
+				return type(key) == "table" and key.type == "A"
+			end)
+			</code>
+
+			<strong>By Multiple Exact Strings (Aho-Corasick)...</strong>
+			Uses the high-performance Aho-Corasick algorithm when a table of exact, non-glob strings is provided. 
+			
+			<code>cache:RemoveByPattern({"user_to_delete_1", "guest_session_abc"})
+			</code>
+
+			<strong>By Lua Pattern (Fallback)...</strong>
+			When a single string *without* a glob ('*') is provided, the function falls 
+			back to a slower iteration method using standard Lua pattern matching. 
+			
+			<code>-- Removes keys like "log_1", "log_2", etc. using Lua's pattern matching
+			cache:RemoveByPattern("log_%d+")
+			</code>
+		]]
+		function(self: FullCache<T>, patOrFn: string | {string} | ((key: string|{any}) -> boolean)) end
+	),
+	RemoveNamespace: typeof(
+		--[[
+			Removes all entries within a given namespace using a fast, trie-based prefix search. 
+			A namespace is simply a key prefix. For example, calling this with "users:"
+			will remove "users:1", "users:2", "users:config:a", etc.
+			
+			<code>local node = cache:RemoveNamespace("users:")
+		]]
+		function(self: FullCache<T>, prefix:string):number end
+	),
+	DefineVirtual: typeof(
+		--[[
+			Defines a "virtual" entry.  The value is not computed or stored
+			until the first time it is accessed with Get().  On first access,
+			the computeFn is executed, the result is cached, and the entry
+			is "promoted" to a regular cache item. 
+
+			<code>cache:DefineVirtual("complex_report", function()
+				return GenerateComplexReport() -- This function only runs when needed
 			end)
 		]]
-		function(self: FullBus, fn: (eventName:string, args:{any})->()): number end
+		function(self: FullCache<T>, key: string|{any}, computeFn: ()->T) end
 	),
-	OnSubscribe: typeof(
+	ManualSweep: typeof(
 		--[[
-			Connects a callback that runs whenever a new subscription is successfully added.
-			Callback receives: (eventName:string, connection:Connection)
-			
-			<code>bus:OnSubscribe(function(eventName, conn)
-				print("New subscriber for:", eventName)
-			end)
-		]]
-		function(self: FullBus, fn: (eventName:string, connection:Connection)->()): number end
-	),
-	OnDisconnect: typeof(
-		--[[
-			Connects a callback that runs whenever a subscription is disconnected.
-			Callback receives: (eventName:string, connection:Connection)
-			
-			<code>bus:OnDisconnect(function(eventName, conn)
-				print("Subscriber disconnected from:", eventName)
-			end)
-		]]
-		function(self: FullBus, fn: (eventName:string, connection:Connection)->()): number end
-	),
-	OnError: typeof(
-		--[[
-			Connects a callback that runs whenever a subscriber callback throws an error.
-			Callback receives: (eventName:string, failingCallback:Callback, errorMsg:string, originalArgs:{any})
-			
-			<code>bus:OnError(function(evName, cb, err, args)
-				print("Error in", evName, err)
-			end)
-		]]
-		function(self: FullBus, fn: ErrorCallback): number end
-	),
-	DisconnectSignal: typeof(
-        --[[
-            Disconnects a signal connection using the ID returned by OnPublish, OnSubscribe, etc.
+			Manually triggers the cache's cleanup mechanisms on demand,
+			bypassing  the normal automated triggers. This is useful for
+			deterministic testing or simulations. 
 
-            <code>local id = bus:OnError(...)
-            bus:DisconnectSignal(bus._errorSignal, id) -- Requires knowing the internal signal object
-        ]]
-		-- OR provide specific methods like DisconnectOnError(id), DisconnectOnPublish(id) etc.
-		function(self: FullBus, signalInstance: any, connectionId: number) end
-	),
-	-- Introspection
-	Keys: typeof(
-		--[[
-			Returns a list of all unique event names/patterns that
-			currently have active subscribers.
-
-			<code>local activeKeys = bus:Keys()
+			No arguments: Performs a full sweep, clearing expired items AND enforcing memory/size limits. 
+			{expireOnly = true}: Only removes items that have passed their TTL. 
+			{enforceMemory = true}: Only evicts items to conform to memory budget and max object limits. 
+			
+			<code>-- Force a full cleanup
+			cache:ManualSweep()
+			-- Only run the TTL expiration check
+			cache:ManualSweep({ expireOnly = true })
+			</code>
 		]]
-		function(self: FullBus): {string} end
+		function(self: FullCache<T>, options: {expireOnly: boolean?, enforceMemory: boolean?}) end
 	),
-	Subscribers: typeof(
+	Pause: typeof(
 		--[[
-			Returns detailed information about all active subscribers
-			for a specific, exact event name (does not handle wildcards
-			or prefixes directly).
-
-			<code>local subs = bus:Subscribers("Player.Joined")
-			for _, subInfo in ipairs(subs) do
-				print(" - Priority:", subInfo.Priority)
+			Pauses the TTL cleanup service, halting expiration checks.
+			Useful if you want to batch operations without interference. 
+			
+			<code>cache:Pause()
+		]]
+		function(self: FullCache<T>) end
+	),
+	Resume: typeof(
+		--[[
+			Resumes the TTL cleanup service.
+			Restarts expiration checks where they left off. 
+			
+			<code>cache:Resume()
+		]]
+		function(self: FullCache<T>) end
+	),
+	Destroy: typeof(
+		--[[
+			Completely removes and cleans up the cache instance.
+			Stops all background processes and releases memory. 
+			The cache cannot be used after being destroyed. 
+		]]
+		function(self: FullCache<T>) end
+	),
+	-- Introspection and Iteration
+	Peek: typeof(
+		--[[
+			Return a dict-entry value without bumping 
+			its LRU/LFU state or affecting TTL. 
+			
+			<code>local value = cache:Peek("key")
+			if value then
+				print(value)
 			end
 		]]
-		function(self: FullBus, eventName: string): {SubscriberInfo} end
+		function(self: FullCache<T>, key: string|{any}): T? end
+	),
+	Keys: typeof(
+		--[[
+			Return a list of all keys currently in the dict.
+			<strong>(Excludes expired)</strong> 
+			
+			<code>local keys = cache:Keys()
+			for _, key in ipairs(keys) do
+				print(key)
+			end
+		]]
+		function(self: FullCache<T>): {string|{any}} end
+	),
+	Values: typeof(
+		--[[
+			Return a list of all values in array + dict
+			<strong>(Excludes expired)</strong>
+			
+			<code>local values = cache:Values()
+		]]
+		function(self: FullCache<T>): {T} end
 	),
 	ForEach: typeof(
 		--[[
-			Invokes a provided function once for each active,
-			non-wildcard, non-prefix, non-timerange subscription.
-			The function receives (eventName, connection).
-			Iteration order is not guaranteed.
-
-			<code>bus:ForEach(function(eventName, conn)
-				print("Active sub:", eventName)
+			Invoke fn(key, value) on every (key,value)
+			pair without affecting eviction/TTL. 
+			
+			<code>cache:ForEach(function(key,value)
+				print(key, value)
 			end)
 		]]
-		function(self: FullBus, fn: (eventName: string, connection: Connection) -> ()) end
+		function(self: FullCache<T>, fn: (key: string|{any}, value: T)->()) end
 	),
+	-- Bulk operations
+	BulkSet: typeof(
+		--[[
+			Sets multiple key/value pairs in one shot.
+			Supports parallel encoding on clients for improved performance. 
+			
+			entries: table where keys are string|table and values are T
+			options?: {parallel:boolean}
+			
+			<code>cache:BulkSet({user1 = data1, user2 = data2, [complexKey] = data3})
+		]]
+		function(self: FullCache<T>, entries: {[string|{any}]: T}, options:{parallel:boolean?}) end
+	),
+	BulkGet: typeof(
+		--[[
+			Retrieves multiple values, returning nil for misses.
+			Supports parallel execution on clients. 
+			
+			keys: array of string|table
+			options?: {parallel:boolean}
+			Returns an array of values in the same order. 
+			
+			<code>local results = cache:BulkGet({"a", "b", complexKey})
+		]]
+		function(self: FullCache<T>, keys: {string|{any}}, options:{parallel:boolean?}): {T?} end
+	),
+	BulkRemove: typeof(
+		--[[
+			Removes multiple keys at once.
+			keys: array of string|table 
+			
+			<code>cache:BulkRemove({"user1", complexKey})
+		]]
+		function(self: FullCache<T>, keys: {string|{any}}) end
+	),
+	-- TTL
+	SetWithTTL: typeof(
+		--[[
+			Stores a key-value pair that expires in "ttl" seconds.
+			Useful for temporary data like sessions or cooldowns. 
+			
+			<code>cache:SetWithTTL("session_abc", "SessionData", 30)
+		]]
+		function(self: FullCache<T>, key: string|{any}, value: T, ttl: number): T end
+	),
+	Touch: typeof(
+		--[[
+			Resets a key's TTL to its original duration, as if it were just added.
+			This is useful for keep-alive mechanisms.  An optional <strong>timeBoost</strong> in
+			seconds can be added to the newly reset TTL.  Returns true if successful.
+
+			<code>local updated = cache:Touch("session_key")
+			if updated then
+				print("Session extended!")
+			end
+
+			-- Extend session and add 5 extra minutes
+			cache:Touch("session_key", 300)
+		]]
+		function(self: FullCache<T>, key: string|{any}, timeBoost: number?): boolean end
+	),
+	TTLRemaining: typeof(
+		--[[
+			Return seconds until expiration, or nil if none.
+			
+			<code>local remaining = cache:TTLRemaining("key")
+		]]
+		function(self: FullCache<T>, key: string|{any}): number? end
+	),
+	RefreshTTL: typeof(
+		--[[
+			Extends an existing key’s TTL by extra seconds.
+			If the key doesn’t exist or has no TTL,
+			does nothing (returns false). 
+			
+			<code>local success = cache:RefreshTTL("key", 300)
+			if success then
+				print("Refreshed TTL!")
+			end
+		]]
+		function(self: FullCache<T>, key: string|{any}, extraSeconds: number): boolean end
+	),
+	ClearExpired: typeof(
+		--[[
+			Manually purge all expired entries; returns count removed. 
+			
+			<code>local count = cache:ClearExpired()
+			print("Removed",count,"entries.")
+		]]
+		function(self: FullCache<T>): number end
+	),
+	-- Static Methods
+	Create: typeof(
+		--[[
+			Creates a new named cache or returns an existing one if already created. 
+			Supports optional max
+			object count, TTL interval in seconds, and cache options (weak/strong mode and eviction policy). 
+			
+			<code>local cache = FullCache.Create("MyCache", 100, 5, {Mode = "strong", Policy = "LRU"})
+		]]
+		function(CacheName:string, MaxObjects:number?, Opts:CreateOpts?):FullCache<T> end
+	),
+	-- Memory introspection
+	GetMemoryUsage: typeof(
+		--[[
+			Returns the memory used by both arrays and dictionaries. 
+			
+			<code>local usage = cache:GetMemoryUsage()
+		]]
+		function(self: FullCache<T>): number end
+	),
+	GetMemoryUsageByType: typeof(
+		--[[
+			Breaks down memory usage by array, dict, or both. 
+			
+			<code>local usage = cache:GetMemoryUsageByType()
+		]]
+		function(self: FullCache<T>): {array: number, dict: number} end
+	),
+	GetRemainingMemory: typeof(
+		--[[
+			Helps check how close you are to the limit. 
+			
+			<code>local MemoryRemaining = cache:GetRemainingMemory()
+		]]
+		function(self: FullCache<T>): number end
+	),
+	GetMemoryInfo: typeof(
+		--[[
+			Returns current usage, budget, and percent used. 
+			
+			<code>local MemoryInfo = cache:GetMemoryInfo()
+		]]
+		function(self: FullCache<T>): {used: number, budget: number, percentUsed: number} end
+	),
+	IsNearMemoryBudget: typeof(
+		--[[
+			Returns true if memory is near a threshold (default 90%). 
+			
+			<code>local IsNear = cache:IsNearMemoryBudget(0.8)
+			if IsNear then
+				print("Warning: memory usage exceeds 80%!")
+			end
+		]]
+		function(self: FullCache<T>, threshold: number?): boolean end
+	),
+	-- Dynamic configuration
+	Resize: typeof(
+		--[[
+			Adjusts the maximum number of entries the cache can hold. 
+			If the current number of items exceeds newMax, evicts entries
+			according to the active policy until the size constraint is satisfied. 
+			
+			<code>cache:Resize(newMax)
+		]]
+		function(self: FullCache<T>, newMax: number) end
+	),
+	SetPolicy: typeof(
+		--[[  
+			Switches the cache’s eviction policy to the given
+			policyName <strong>(e.g. "LRU", "LFU", "FIFO", "RR")</strong>. 
+			Attempts to preserve the existing policy state
+			when switching to the same policy; otherwise,
+			initializes the new policy fresh. 
+			
+			<code>cache:SetPolicy(policyName)
+		]]
+		function(self: FullCache<T>, policyName: string) end
+	),
+	SetMemoryBudget: typeof(
+		--[[  
+			Sets a new memory‐usage ceiling (in bytes) for this cache instance. 
+			Immediately prunes entries until the total serialized size of stored
+			items falls at or below the specified budget. 
+			
+			<code>cache:SetMemoryBudget(budget)
+		]]
+		function(self: FullCache<T>, budget: number) end
+	),
+	-- Events / signals
+	Watch: typeof(
+		--[[
+			Returns a generator that yields a log of cache events (Set, Evict, Expire, Remove) 
+			as they occur.  This provides a polling-based way to monitor all cache activity. 
+
+			<code>
+			local watchIterator, cleanupWatcher = cache:Watch()
+			coroutine.wrap(function()
+			-- Loop until the main thread tells us to stop
+				while not stopWatching do
+					local event = watchIterator() -- Manually get the next event
+					if event then
+						-- If we got an event, process it
+						table.insert(watchEvents, event)
+					else
+						-- If there was no event, wait briefly before checking again.
+						-- This prevents a busy-loop and resolves the race condition.
+						task.wait()
+					end
+				end
+			end)()
+		]]
+		function(self: FullCache<T>): (() -> WatchEvent<T>?, () -> ()) end
+	),
+	OnEvict: typeof(
+		--[[
+			Connects a callback that runs whenever an 
+			object is evicted (from dictionary or array).
+			Useful for cleanup or metrics. 
+			
+			<code>cache:OnEvict(function(info)
+				print("Evicted:", info.kind, info.key or "", info.value)
+			end)
+		]]
+		function(self: FullCache<T>, fn: (info: EvictionInfo<T>)->()): number end
+	),
+	OnMemoryChanged: typeof(
+		--[[
+			Connects a callback that runs whenever the cache's memory usage changes.
+			The callback receives an info table with the current usage, budget, and percentage used. 
+			
+			<code>local conn = cache:OnMemoryChanged(function(info)
+			print(string.format("Memory Usage: %.2f%% (%d / %d bytes)",
+				info.percentUsed, info.used, info.budget))
+		end)
+		]]
+		function(self: FullCache<T>, fn: (info: MemoryChangeInfo)->()): number end
+	),
+	OnHit: typeof(
+		--[[ 
+			Connect a callback that runs whenever a cache hit occurs. 
+			
+			<code>cache:OnHit(function(key, value)
+				print("Hit:", key, value)
+			end)
+		]]
+		function(self: FullCache<T>, fn: (key: string|{any}, value: T)->()): number end
+	),
+	OnMiss: typeof(
+		--[[ 
+			Connect a callback that runs whenever a cache miss occurs. 
+			
+			<code>cache:OnMiss(function(key)
+				print("Miss:", key)
+			end)
+		]]
+		function(self: FullCache<T>, fn: (key: string|{any})->()): number end
+	),
+	OnExpire: typeof(
+		--[[
+			Connect a callback that runs whenever a cache expiration occurs. 
+			
+			<code>cache:OnExpire(function(key, value)
+				print("Expired:", key, value)
+			end)
+		]]
+		function(self: FullCache<T>, fn: (key: string|{any}, value: T)->()): number end
+	),
+	-- Metrics
+	ResetMetrics: typeof(
+		--[[ 
+			Zero out hit/miss/eviction counters. 
+			
+			<code>cache:ResetMetrics()
+		]]
+		function(self: FullCache<T>) end
+	),
+	GetStats: typeof(
+		--[[ 
+			Snapshot of current metrics. 
+			
+			<code>local Stats = cache:GetStats()
+		]]
+		function(self: FullCache<T>): {hits: number, misses: number, evictions: number, uptime: number, hitRate: number} end
+	),
+	GetMetrics: typeof(
+		--[[
+			Returns a table of performance metrics, including hits, misses, evictions,
+			uptime, and the calculated hit-to-miss ratio. 
+			
+			<code>local metrics = cache:GetMetrics()
+			print(string.format("Uptime: %.2fs, Hit/Miss Ratio: %.2f",
+			metrics.uptime, metrics.hitMissRatio))
+		]]
+		function(self: FullCache<T>): {hits: number, misses: number, evictions: number, uptime: number, hitMissRatio: number} end
+	),
+	-- Snapshot / Persistence
+	Snapshot: typeof(
+		--[[
+			Returns a serializable table representing the cache’s
+			internal state (array, dict, TTL, policy, etc). 
+			
+			On the array/dict state, you can select the following
+			options: <strong>"Auto", "Shallow", "Deep".</strong>
+			<code>local snapshot = cache:Snapshot("Auto")</code>
+			
+			To snapshot a single key:
+			<code>local partial_snapshot = cache:Snapshot("my_key")</code>
+		]]
+		function(self: FullCache<T>, Option: string?): SnapshotData<T> end
+	),
+	Restore: typeof(
+		--[[
+			Restores cache contents from a snapshot. 
+			
+			<code>cache:Restore(snapshot)
+		]]
+		function(self: FullCache<T>, snapshot: SnapshotData<T>) end
+	),
+	ToJSON: typeof(
+		--[[
+			Encodes a snapshot of the cache state into a JSON string.
+			Can be used for persistence or debugging. 
+
+			<code>local FormattedData = cache:ToJSON(format)
+		]]
+		function(self: FullCache<T>): string end
+	),
+	FromJSON: typeof(
+		--[[
+			Restores cache data from a previously serialized JSON snapshot string. 
+			
+			<code>cache:FromJSON(FormattedData)
+		]]
+		function(self: FullCache<T>, jsonString: string) end
+	),
+	-- Atomic Operations
 	Transaction: typeof(
 		--[[
 			Executes a block of code within a single, atomic transaction.
-			The bus is locked before the function begins and unlocked after it completes.
-			Operations performed on the provided 'txBus' instance within the
-			function are queued and applied atomically upon successful completion.
-			If the function errors, none of the operations are applied.
+			The cache is locked before the function begins and unlocked after it completes.
+			This ensures that a sequence of operations is performed without interruption
+			from other threads, preventing complex race conditions.
 
-			<code>local success, result = bus:Transaction(function(txBus)
-				local handle = txBus:Subscribe("EventA", callback)
-				txBus:Publish("EventB", 123)
-				-- txBus:Disconnect(someHandle) -- Disconnect operations can be tricky to journal
-				return "Completed"
+			<code>-- Atomically transfer a value from one account to another
+			cache:Transaction(function(txCache)
+				local valA = txCache:Get("accountA")
+				local valB = txCache:Get("accountB")
+				txCache:Set("accountA", valA - 100)
+				txCache:Set("accountB", valB + 100)
 			end)
 		]]
-		function(self: FullBus, transactionFn: (txBus: FullBus) -> any): (boolean, any?) end
+		function(self: FullCache<T>, transactionFn: (cache: FullCache<T>) -> any): any? end
 	),
 }
 export type Static = {
-	Create:typeof(
+	Create: typeof(
 		--[[
-			Creates a new event bus instance.
+			Creates a new named cache or returns an existing one if already created. Supports optional max
+			object count, TTL interval in seconds, and cache options (weak/strong mode and eviction policy).
+			
+			<code>local cache = FullCache.Create("MyCache", 100, 5, {Mode = "strong", Policy = "LRU"})
 		]]
-		function(Name:string, Opts:CreateOpts?):FullBus<T> end
+		function <T>(CacheName:string, MaxObjects:number?, Opts:CreateOpts?):FullCache<T> end
 	)
 }
 ------------------------------------------------------------------------------------------------------------
 export type Master = {
-	Callback: Callback,
-	Connection: Connection,
-	SubscriptionGroup: SubscriptionGroup,
-	SubscribeOptions: SubscribeOptions,
-	SubscriberInfo: SubscriberInfo,
+	FIFOState: FIFOState,
+	LRUState: LRUState,
+	LFUState: LFUState,
+	RRState: RRState,
+	PolicyState: PolicyState,
+	CacheEntry: CacheEntry,
+	EvictionInfo: EvictionInfo,
+	MemoryChangeInfo: MemoryChangeInfo,
+	WatchEvent: WatchEvent,
+	SnapshotData: SnapshotData,
 	CreateOpts: CreateOpts,
-	Middleware: Middleware,
-	BusStats: BusStats,
-	DisconnectHandle: DisconnectHandle,
-	FullBus: FullBus,
+	FullCache: FullCache,
 	Static: Static,
 }
 local TypeDef = {}

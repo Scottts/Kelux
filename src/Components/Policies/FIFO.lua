@@ -39,15 +39,19 @@ function FIFO:insertBatch(keysToInsert)
 		return evictedKeys
 	end
 	local keysToInsertSet = {}
+	local uniqueKeys = {}
 	for _, key in ipairs(keysToInsert) do
-		keysToInsertSet[key] = true
+		if not keysToInsertSet[key] then
+			keysToInsertSet[key] = true
+			table.insert(uniqueKeys, key)
+		end
 	end
 	for i = #self._queue, 1, -1 do
 		if keysToInsertSet[self._queue[i]] then
 			table.remove(self._queue, i)
 		end
 	end
-	for _, keyToAdd in ipairs(keysToInsert) do
+	for _, keyToAdd in ipairs(uniqueKeys) do
 		table.insert(self._queue, keyToAdd)
 	end
 	local numToEvict = #self._queue - self._maxSize

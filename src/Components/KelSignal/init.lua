@@ -88,7 +88,6 @@ function Signal:_disconnectNow(id: number)
 		ids[index_to_remove] = id_of_last
 		self._lookup[id_of_last] = index_to_remove
 	end
-
 	handlers[last_index] = nil
 	ids[last_index] = nil
 	self._lookup[id] = nil
@@ -107,17 +106,20 @@ end
 
 function Signal:Wait(): ...any
 	local waitingCoroutine = coroutine_running()
-	local args
+	local yielded = false
+	local syncArgs = nil
 	self:Once(function(...)
-		args = {...}
-		task_defer(function()
-			coroutine_resume(waitingCoroutine)
-		end)
+		if yielded then
+			task_spawn(waitingCoroutine, ...)
+		else
+			syncArgs = {...}
+		end
 	end)
-	if not args then
-		coroutine_yield()
+	if syncArgs then
+		return unpack(syncArgs)
 	end
-	return unpack(args)
+	yielded = true
+	return coroutine_yield()
 end
 
 function Signal:Fire(...: any)

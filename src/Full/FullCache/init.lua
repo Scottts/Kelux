@@ -9,20 +9,10 @@
 	Read documentary in FullCache.Documentary
 	
 	NOTE:[
-		I highly recommend not using the KELP serialization format for the time being.
-		It's heavily under-developed and experimental so stick with JSON.
-		KELP's current usage is for lower byte sizes when absolutely necessary.
-		
-		Benchmark test:
-		JSON: 1.2230 sec over 100 runs (avg 0.012230) in 250134 bytes
-		KELP: 1.3157 sec over 100 runs (avg 0.013157) in 211929 bytes
-		JSON decode: 0.7263 sec over 100 runs (avg 0.007263)
-		KELP decode: 0.9589 sec over 100 runs (avg 0.009589)
-		
-		JSON is C++, while KELP is pure LuaU, this is to be expected.
+		None
 	]
 ]]
-local Version = "3.56.2 (STABLE)"
+local Version = "3.56.3 (STABLE)"
 -- Dependencies
 -- Adjust all of these positions if used elsewhere...
 local TypeDef = require(script.TypeDef)
@@ -31,7 +21,6 @@ local Debugger = require(Components.Debugger).From(script.Name)
 local Signal = require(Components.KelSignal)
 local TTL = require(Components.TTLService)
 local Mutex = require(Components.Mutex)
-local KELP = require(Components.Formats.kelPacker) -- Experimental (unstable)
 
 -- Algorithms
 local Algorithms = Components.Algorithms
@@ -58,7 +47,6 @@ local Policies = {
 local DefaultMax = 1000
 local DefaultMemoryBudget = math.huge
 local DefaultSerializedSize = math.huge
-local DefaultFormat = "JSON"
 
 local FullCache = {}
 FullCache.__index = FullCache
@@ -517,18 +505,12 @@ function FullCache:_getReadOnly(realKey)
 			end
 		end
 	end
-	local dataFormat = entry.originalFormat or self._formatType
 	local finalValue
-	if dataFormat == "KELP" then
-		local success, unpacked = pcall(KELP.unpack, valueToProcess)
-		finalValue = success and unpacked or nil
-	else -- JSON by default
-		if type(valueToProcess) == "string" and (entry.compressionType or entry.originalFormat) then
-			local success, decoded = pcall(HttpService.JSONDecode, HttpService, valueToProcess)
-			finalValue = success and decoded or nil
-		else
-			finalValue = valueToProcess
-		end
+	if type(valueToProcess) == "string" and (entry.compressionType or entry.originalFormat) then
+		local success, decoded = pcall(HttpService.JSONDecode, HttpService, valueToProcess)
+		finalValue = success and decoded or nil
+	else
+		finalValue = valueToProcess
 	end
 	return finalValue
 end
@@ -564,22 +546,7 @@ function FullCache:_prepareEntry(value, existingEntry)
 			else
 				jsonRepresentation = ""
 			end
-		elseif format == "KELP" then
-			success, encodedValueString = pcall(KELP.pack, value)
-			if success and type(encodedValueString) == "string" then
-				calculatedSize = #encodedValueString
-				entry.value = encodedValueString
-				entry.originalFormat = "KELP"
-				local jsonSuccess, jsonEncodedStr = pcall(HttpService.JSONEncode, HttpService, value)
-				if jsonSuccess then
-					jsonRepresentation = jsonEncodedStr
-				else
-					jsonRepresentation = ""
-				end
-			else
-				success = false
-			end
-		else -- Default to JSON
+		else
 			success, encodedValueString = pcall(HttpService.JSONEncode, HttpService, value)
 			if success and type(encodedValueString) == "string" then
 				calculatedSize = #encodedValueString
@@ -599,13 +566,8 @@ function FullCache:_prepareEntry(value, existingEntry)
 		end
 		if self._useCompression then
 			local dataToCompress
-			if format == "KELP" then
-				local success, packed = pcall(KELP.pack, value)
-				if success then dataToCompress = packed end
-			else -- Default to JSON
-				local success, encoded = pcall(HttpService.JSONEncode, HttpService, value)
-				if success then dataToCompress = encoded end
-			end
+			local success, encoded = pcall(HttpService.JSONEncode, HttpService, value)
+			if success then dataToCompress = encoded end
 			if dataToCompress then
 				local compressor
 				if self._useCompression == "zstd" then
@@ -859,28 +821,10 @@ function FullCache.Create<T>(CacheName:string, MaxObjects:number?, Opts:CreateOp
 		local readOnly = opts.ReadOnly or false
 		local ttlCapacity = opts.TTLCapacity
 
-		-- Serialization mode (JSON or KELP)
-		local FormatType = DefaultFormat
-		if opts.FormatType and typeof(opts.FormatType) == "string" then
-			FormatType = string.upper(opts.FormatType)
-			if FormatType ~= DefaultFormat 
-				and FormatType ~= "JSON" 
-				and FormatType ~= "KELP" 
-			then
-				Debugger:Log("warn","Create", ("expected valid format, got: %s \nUsing JSON as fallback...")
-					:format(FormatType))
-				FormatType = DefaultFormat
-			end
-		elseif opts.FormatType then
-			Debugger:Log("warn","Create", ("expected FormatType to be string, got: %s \nUsing JSON as fallback...")
-				:format(typeof(opts.FormatType)))
-		end
-
 		-- Make sure that it's not already registered
 		if Cache[CacheName] then
 			local cache = Cache[CacheName]
 			cache._useCompression = useCompression
-			cache._formatType = FormatType
 			cache._ttlMode = ttlMode
 			cache._ttlUseClock = ttlUseClock
 			cache._ttlCapacity = ttlCapacity
@@ -959,7 +903,6 @@ function FullCache.Create<T>(CacheName:string, MaxObjects:number?, Opts:CreateOp
 			_memoryBudget = memoryBudget,
 			_memoryUsage = 0,
 			_maxobj = maxObjs,
-			_formatType = FormatType,
 			-- TTL
 			_ttlCapacity = ttlCapacity,
 			_ttlFilter = ttlFilter,
@@ -1931,10 +1874,8 @@ function FullCache:ToJSON(format:string?): string
 	local snapshotForSerialization = self:Snapshot("auto")
 	if format == "JSON" then
 		return HttpService:JSONEncode(snapshotForSerialization)
-	elseif format == "KELP" then
-		return KELP.pack(snapshotForSerialization)
 	else
-		Debugger:Log("error","ToJSON", ("unknown format %q; expected 'JSON' or 'KELP'")
+		Debugger:Log("error","ToJSON", ("unknown format %q; expected 'JSON'")
 			:format(format))
 	end
 end
@@ -1954,8 +1895,8 @@ function FullCache:FromJSON(String:string, format:string?)
 	local Format = format or self._formatType
 	if Format == "JSON" then
 		self:Restore(HttpService:JSONDecode(String))
-	elseif Format == "KELP" then
-		self:Restore(KELP.unpack(String))
+	else
+		Debugger:Log("error", "FromJSON", ("unknown format %q; expected 'JSON'"):format(Format))
 	end
 end
 

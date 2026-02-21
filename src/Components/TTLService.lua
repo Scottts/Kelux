@@ -1,14 +1,14 @@
 -- DO NOT EDIT IF YOU DON'T KNOW WHAT YOU'RE DOING
 local TTL = {}
 TTL.__index = TTL
-local BloomFilter = require(script.Parent.Algorithms.BloomFilter)
+local BloomFilter = script.Parent.Algorithms.BloomFilter
 local CuckooFilter = require(script.Parent.Algorithms.CuckooFilter)
 
 local BloomFilterAdapter = {}
 BloomFilterAdapter.__index = BloomFilterAdapter
 function BloomFilterAdapter.new(capacity, errorRate)
 	local self = setmetatable({}, BloomFilterAdapter)
-	self.filter = require(script.Parent.Algorithms.BloomFilter).new(capacity, errorRate)
+	self.filter = BloomFilter.new(capacity, errorRate)
 	return self
 end
 function BloomFilterAdapter:Lookup(key)
@@ -57,11 +57,11 @@ function TTL.new(manager, capacity:number?, filterType:string?, onExpireCallback
 	local filter
 	local capacity = capacity or 10000
 	local errorRate = 0.01
-	if filterType == "cuckoo" or "cuckoofilter" then
+	if filterType == "cuckoo" or filterType == "cuckoofilter" then
 		filter = CuckooFilter.new(capacity)
 	else -- default to bloom
 		filterType = "bloom"
-		filter = BloomFilter.new(capacity, errorRate)
+		filter = BloomFilterAdapter.new(capacity, errorRate)
 	end
 	local self = setmetatable({
 		_manager = manager,
