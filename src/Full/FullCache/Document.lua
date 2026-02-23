@@ -37,7 +37,7 @@
 				Subscribe to cache events like hits, misses, and evictions.
 
 			Data Persistence: 
-				Snapshot and restore the cache's state using JSON or the experimental KELP format.
+				Snapshot and restore the cache's state using JSON.
 
 			Bulk Operations: 
 				Perform batch operations for improved performance.
@@ -85,12 +85,9 @@
 				The maximum size in bytes for a single serialized entry. 
 				Defaults to math.huge.
 
-				FormatType (string)
-				The default serialization format. Options: "JSON", "KELP". Defaults to "JSON".
-
 				EstimateSizeFunction (function)
 				A custom function (value) -> number to estimate the memory size of a value. 
-				Overrides default JSON/KELP sizing.
+				Overrides default JSON sizing.
 				
 				UseCompression (string) [Optional]
 				Enables automatic data compression on stored values to reduce their memory footprint.
@@ -350,10 +347,10 @@
 			Restores the cache's state from a snapshot table.
 
 			cache:ToJSON(format?)
-			Returns a JSON (or KELP) string of the cache's snapshot.
+			Returns a JSON string of the cache's snapshot.
 
 			cache:FromJSON(jsonString, format?)
-			Restores the cache from a JSON (or KELP) string.
+			Restores the cache from a JSON string.
 
 		Events / Signals:
 			Connect to these signals to react to cache activity.
@@ -561,129 +558,6 @@
 ]]
 
 --[[
-	History:[
-		[4/20/25 3:57 PM UTC+9]: 
-		Replaced store with two subtables: "arrays" and "dictionaries"
-		
-		[4/20/25 7:56 PM UTC+9]: 
-		I kind of forgot to list down the changes... Oh well.
-		[4/20/25 11:54 PM UTC+9]: 
-		
-		Introduced policies, AKA: FIFO, LRU, and LFU, replacing and deprecating 
-		the RecordAccess and AccessList function
-		
-		[4/21/25 11:36 PM UTC+9]: 
-		The Insert method has been deprecated in favor of InsertSingle and InsertBatch.
-		
-		[4/23/25 6:26 PM UTC+9]: 
-		Fixed an oversight where in Restore:(), "Policies[...].new(...)" 
-		was set as "Policies[...]:new(...)". Notice the difference?
-		
-		[4/23/25 6:52 PM UTC+9]: 
-		Introduced Lazy Loading via GetOrLoad
-		
-		[4/23/25 11:52 PM UTC+9]: 
-		Each policies are now memory-aware, also added QoL methods to memory :)
-		
-		[4/25/25 11:45 PM UTC+9]: 
-		Refactored cache insertion logic (Set, SetWithTTL, InsertSingle) to 
-		route through a new unified method _encodeEntry, which handles serialization, 
-		size estimation, and eviction checks.
-		
-		[4/26/25 5:19 PM UTC+9]: 
-		Snapshot method now supports a mode for shallow, deep, or auto cloning.
-		
-		[4/26/25 7:05 PM UTC+9]: 
-		TTL has been moved into its own sub-module for easier management. 
-		TTLInterval and its parameter is also deprecated.
-		
-		[4/26/25 11:02 PM UTC+9]: 
-		Introduced an experimental serialization format as an alternative to JSON. (KELP/kelPack)
-		
-		[4/27/25 12:35 PM UTC+9]: 
-		Introduced two new methods: Resume and Pause
-		
-		[4/28/25 11:34 PM UTC+9]: 
-		Introduced way too many methods (17 exact) at once.
-		
-		[4/29/25 11:30 PM UTC+9]: 
-		Improved error and warn debugs.
-		
-		[4/30/25 8:10 PM UTC+9]: 
-		Added missing descriptions to multiple methods.
-		
-		[6/11/25 6:33 PM UTC+9]: 
-		I forgot to update History, but the previous changes were optimizations.
-		
-		[6/11/25 8:09 PM UTC+9]: 
-		Introduced Trie primarily for the RemoveByPattern method. 
-		
-		[6/11/25 11:35 PM UTC+9]: 
-		Introduced new algorithms, BloomFilter, Count-Min Sketch, Cuckoo Filter, and many more. 
-		Murmurmash was quickly added but then immediately removed because of xxHash.
-		
-		[6/12/25 6:41 PM UTC+9]:
-		Done a lot of edge-case testing and debugging,
-		and fixed (I think) all of it (hopefully).
-		
-		[6/12/25 8:02 PM UTC+9]:
-		Replaced GoodSignal with FastSignal because we aren't 
-		yielding anywhere and we're lightweight anyway.
-		
-		See Stravant's official benchmark test:
-		| FastSignal | GoodSignal | SimpleSignal | RobloxSignal | 
-		--------------------------------------------------------------------------------
-		CreateAndFire         |  0.6μs     |  1.2μs     |  2.4μs       |  18.5μs      | 
-		ConnectAndDisconnect  |  0.3μs     |  0.3μs     |  0.4μs       |  1.8μs       | 
-		FireWithNoConnections |  0.1μs     |  0.0μs     |  0.0μs       |  2.2μs       | 
-		Fire                  |  0.2μs     |  0.8μs     |  3.8μs       |  3.2μs       | 
-		FireManyArguments     |  0.2μs     |  0.8μs     |  2.0μs       |  3.5μs       | 
-		FireManyHandlers      |  0.2μs     |  4.4μs     |  15.2μs      |  6.0μs       | 
-		FireYieldingHandler   |  N/A       |  5.1μs     |  5.1μs       |  6.1μs       | 
-		WaitOnEvent           |  3.1μs     |  3.5μs     |  5.1μs       |  5.6μs       |
-		https://devforum.roblox.com/t/lua-signal-class-comparison-optimal-goodsignal-class/1387063
-		
-		[6/13/25 12:32 PM UTC+9]:
-		A bit sudden, but, there's now 58 public APIs 
-		compared to 46 in the previous version.
-		Also, this is now a stable build (v0.3.39) because of edge-case testing.
-		
-		[6/14/25 9:54 PM UTC+9]:
-		Multi-threading added, also new public API.
-		The total of public APIs has increased to 59 APIs.
-		
-		[6/14/25 11:30 PM UTC+9]:
-		Merged EnableReadOnly and DisableReadOnly 
-		into ReadOnly(state) for ergonomitry.
-		Also added Destroy API.
-		
-		[6/15/25 11:06 PM UTC+9]:
-		Replaced FastSignal with KelSignal. 
-		See KelSignal for benchmark results
-		
-		[6/15/25 12:52 PM UTC+9]:
-		I FINALLY FIXED DUMB DOC COMMENTS 
-		NOT BEING DISPLAYED BY INTELLISENSE
-		
-		[6/16/25 9:47 PM UTC+9]:
-		EstimateClientCore was silently dropped
-		
-		[6/16/25 12:37 PM UTC+9]:
-		Expiremented the hell out of Actors, they are furiating.
-		Multi-threading will still use task.spawn
-		unless someone smarter does it for me.
-		
-		[6/20/25 9:57 PM UTC+9]:
-		Added mutex locking yay
-		also added Update and Transaction
-		60 APIs in total now wooo
-		
-		[6/21/25 4:59 PM UTC+9]:
-		removed redundant calls and internal apis
-	]
-]]
-
---[[
 	Terminology:
 	.____________________________________________________________________________________________________________________________________
 	| Term                          | Meaning                                                                                            |
@@ -696,7 +570,7 @@
 	| ARC                       	| Adaptive Replacement Cache – automatically balances between LRU and LFU based on usage patterns.	 |
 	| Eviction                  	| When an entry is removed from the cache (due to size, TTL, or policy).                             |
 	| Compression (Zstd/LZ4)    	| Optional algorithms to reduce memory usage of large entries.                                       |
-	| Serialization (JSON/KELP) 	| Converts a table/value into a storable string format.                                              |
+	| Serialization 				| Converts a table/value into a storable string format.                                              |
 	| Weak references           	| Lua feature allowing garbage collection of values/keys if not used elsewhere.                      |
 	| Hit / Miss                	| Hit: data found in cache. Miss: data had to be loaded or computed.                            	 |
 	| Memory Budget             	| Limit (in bytes) for how much data a cache can store before evicting items.                        |

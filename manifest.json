@@ -1,5 +1,5 @@
 {
-  "Version": "1.4.3",
+  "Version": "1.4.4",
   "Tools": {
     "FullBus": {
       "Path": "src/Full/FullBus/init.lua",
@@ -8,7 +8,7 @@
     },
     "FullCache": {
       "Path": "src/Full/FullCache/init.lua",
-      "Deps": ["KelSignal", "Debugger", "TTLService", "Mutex", "Algorithms/Trie", "Algorithms/AhoCorasick", "Algorithms/LZ4", "Algorithms/Zstd", "Algorithms/xxHash", "Formats/kelPacker", "Policies/FIFO", "Policies/LRU", "Policies/LFU", "Policies/RR", "Policies/ARC", "Algorithms/BloomFilter", "Algorithms/CuckooFilter"],
+      "Deps": ["KelSignal", "Debugger", "TTLService", "Mutex", "Algorithms/Trie", "Algorithms/AhoCorasick", "Algorithms/LZ4", "Algorithms/Zstd", "Algorithms/xxHash", "Policies/FIFO", "Policies/LRU", "Policies/LFU", "Policies/RR", "Policies/ARC", "Algorithms/BloomFilter", "Algorithms/CuckooFilter"],
       "Internals": ["TypeDef", "Document"]
     },
     "FullPool": {
@@ -74,7 +74,6 @@
     "Algorithms/CHF": "src/Components/Algorithms/CHF.lua",
     "Algorithms/DedupeLog": "src/Components/Algorithms/DedupeLog.lua",
     "Algorithms/Base64": "src/Components/Algorithms/Base64.lua",
-    "Formats/kelPacker": "src/Components/Formats/kelPacker.lua",
     "Policies/FIFO": "src/Components/Policies/FIFO.lua",
     "Policies/LRU": "src/Components/Policies/LRU.lua",
     "Policies/RR": "src/Components/Policies/RR.lua",

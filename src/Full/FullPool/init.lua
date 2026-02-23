@@ -8,7 +8,7 @@
 	
 	Read documentary in FullPool.Documentary
 ]]
-local VERSION = "0.1.725 (STABLE)"
+local VERSION = "1.72.5 (STABLE)"
 -- Dependencies
 local TypeDef = require(script.TypeDef)
 local Signal = require(script.Parent.Parent.Components.KelSignal)

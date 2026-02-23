@@ -10,6 +10,9 @@ local MAX_KICKS = 500
 local function hash(item, seed)
 	seed = seed or 0
 	local h = seed
+	if type(item) ~= "string" then
+		item = tostring(item)
+	end
 	for i = 1, #item do
 		h = (h * 31 + string.byte(item, i)) % 2147483647
 	end

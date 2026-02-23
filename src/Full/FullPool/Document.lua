@@ -1,6 +1,6 @@
 --[[ 
     [ FULLPOOL DOCUMENTATION ]
-    Version: 0.1.725 (STABLE)
+    Version: 1.72.5 (STABLE)
 
     Author: Kel (@GudEveningBois)
 

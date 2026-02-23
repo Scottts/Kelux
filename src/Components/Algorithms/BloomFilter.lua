@@ -139,10 +139,18 @@ function module:Union(other)
 	local result = module.new(self.expectedItems, self.falsePositiveRate)
 	result.size = self.size
 	result.numHashFunctions = self.numHashFunctions
+	local setBits = 0
 	for i = 1, self.size do
 		result.bitArray[i] = self.bitArray[i] or other.bitArray[i]
+		if result.bitArray[i] then
+			setBits = setBits + 1
+		end
 	end
-	result.itemCount = self.itemCount + other.itemCount
+	if setBits == self.size then
+		result.itemCount = self.expectedItems
+	else
+		result.itemCount = math.ceil(-(self.size / self.numHashFunctions) * math.log(1 - (setBits / self.size)))
+	end
 	return result
 end
 
@@ -153,10 +161,19 @@ function module:Intersection(other)
 	local result = module.new(self.expectedItems, self.falsePositiveRate)
 	result.size = self.size
 	result.numHashFunctions = self.numHashFunctions
+	local setBits = 0
 	for i = 1, self.size do
 		result.bitArray[i] = self.bitArray[i] and other.bitArray[i]
+		if result.bitArray[i] then
+			setBits = setBits + 1
+		end
 	end
-	result.itemCount = math.min(self.itemCount, other.itemCount)
+	if setBits == self.size then
+		result.itemCount = math.min(self.itemCount, other.itemCount)
+	else
+		local estimatedCount = math.ceil(-(self.size / self.numHashFunctions) * math.log(1 - (setBits / self.size)))
+		result.itemCount = math.min(estimatedCount, math.min(self.itemCount, other.itemCount))
+	end
 	return result
 end
 
