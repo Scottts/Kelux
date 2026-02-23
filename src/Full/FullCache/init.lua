@@ -12,7 +12,7 @@
 		None
 	]
 ]]
-local Version = "3.56.3 (STABLE)"
+local Version = "3.56.4 (STABLE)"
 -- Dependencies
 -- Adjust all of these positions if used elsewhere...
 local TypeDef = require(script.TypeDef)
@@ -1253,7 +1253,6 @@ function FullCache:Set(key:string|{any}, value:T):T
 	self._mutex:lock()
 	local eventsToFire
 	local success, result = pcall(self._setInternal, self, key, value)
-	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}
@@ -1458,7 +1457,6 @@ function FullCache:GetOrLoad(key:string|{any}, loader:()->T, ttl: number?)
 	end
 	self._loading[realKey] = nil
 	self._loadSignals[realKey] = nil
-	local eventsToFire
 	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
@@ -1914,7 +1912,6 @@ function FullCache:SetWithTTL(key:string|{any}, value:T, ttl:number):T
 	self._mutex:lock()
 	local eventsToFire
 	local success, result = pcall(self._setWithTTLInternal, self, key, value, ttl)
-	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue
 		self._eventQueue = {}

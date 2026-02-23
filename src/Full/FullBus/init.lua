@@ -8,7 +8,7 @@
 	
 	Read documentary in FullBus.Documentary
 ]]
-local VERSION = "VERSION: 0.1.758 (STABLE)"
+local VERSION = "VERSION: 1.75.8 (STABLE)"
 -- Dependencies
 -- Adjust all of these positions if used elsewhere...
 local TypeDef = require(script.TypeDef)
@@ -116,7 +116,7 @@ function FullBus:_releaseLock()
 	_tryCallMethod(self._lock, UNLOCK_NAMES) 
 	local eventsToFire
 	if #self._eventQueue > 0 then
-		local eventsToFire = self._eventQueue
+		eventsToFire = self._eventQueue
 		self._eventQueue = {}
 		for _, eventData in ipairs(eventsToFire) do
 			pcall(eventData.Signal.Fire, eventData.Signal, table.unpack(eventData.Args))
@@ -1901,7 +1901,6 @@ function FullBus:Transaction(transactionFn: (txBus: FullBus) -> any): (boolean, 
 		end
 	})
 	self:_acquireLock()
-	local eventsToFire
 	local txSuccess, txResults = pcall(transactionFn, txBus)
 	local applySuccess = false
 	local applyError = nil

@@ -1,6 +1,6 @@
 --[[
 	[ FULLTASK DOCUMENTATION ]
-	Version: 0.1.383 (STABLE)
+	Version: 1.38.4 (STABLE)
 
 	Author: Kel (@GudEveningBois)
 

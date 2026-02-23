@@ -8,7 +8,7 @@
 	
 	Read documentary in FullState.Documentary
 ]]
-local Version = "0.1.1 (STABLE)"
+local Version = "1.1.0 (STABLE)"
 -- Dependencies
 local TypeDef = require(script.TypeDef)
 local HttpService = game:GetService("HttpService")
@@ -150,7 +150,6 @@ function FullState:_acquireLock()
 end
 
 function FullState:_releaseLock()
-	local eventsToFire
 	local eventsToFire
 	if #self._eventQueue > 0 then
 		eventsToFire = self._eventQueue

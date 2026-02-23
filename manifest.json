@@ -1,5 +1,5 @@
 {
-  "Version": "1.4.2",
+  "Version": "1.4.3",
   "Tools": {
     "FullBus": {
       "Path": "src/Full/FullBus/init.lua",

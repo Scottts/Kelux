@@ -1,6 +1,6 @@
 --[[
 	[ FULLCACHE DOCUMENTATION ]
-	Version: 0.3.56 (STABLE)
+	Version: 3.56.3 (STABLE)
 
 	Author: Kel (@GudEveningBois)
 

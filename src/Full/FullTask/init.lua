@@ -7,7 +7,7 @@
 	
 	Read documentary in FullTask.Documentary
 ]]
-local VERSION = "0.1.384 (STABLE)"
+local VERSION = "1.38.5 (STABLE)"
 
 local FullTask = {}
 FullTask.__index = FullTask
@@ -425,7 +425,6 @@ function FullTask:Submit(taskFn: (ctx: TypeDef.TaskExecutionContext) -> ...any, 
 		return nil
 	end
 	self.mutex:lock()
-	local eventsToFire
 	local success, result = pcall(function()
 		return self:_internalSubmit(taskFn, options)
 	end)
@@ -465,7 +464,6 @@ end
 
 function FullTask:_enqueueTask(_Task)
 	self.mutex:lock()
-	local eventsToFire
 	local success, result = pcall(function()
 		self:_unsafeEnqueue(_Task)
 	end)
@@ -508,7 +506,6 @@ function FullTask:_processQueue()
 	self.metrics.tasksInQueue = self.priorityQueue.size
 	local tasksToExecute = {}
 	local reinserts = {}
-	local eventsToFire
 	for _, _Task in ipairs(candidates) do
 		if self.currentConcurrency >= self.maxConcurrency then
 			table.insert(reinserts, _Task)
@@ -613,7 +610,6 @@ function FullTask:_executeTaskFinal(_Task)
 		end
 		local shouldProcessQueue = false
 		local shouldRetry = false
-		local eventsToFire
 		local tasksToEnqueueAfterUnlock
 		self.mutex:lock()
 		if _Task.state == TaskState.FAILED then
@@ -624,7 +620,7 @@ function FullTask:_executeTaskFinal(_Task)
 			_unsafeCleanup(_Task)
 			self:_queueEvent(self.signals.taskFailed, _Task) 
 			local eventsToFire
-	if #self._eventQueue > 0 then
+			if #self._eventQueue > 0 then
 				eventsToFire = self._eventQueue
 				self._eventQueue = {}
 			end
@@ -692,7 +688,7 @@ function FullTask:_executeTaskFinal(_Task)
 			end
 		end
 		local eventsToFire
-	if #self._eventQueue > 0 then
+		if #self._eventQueue > 0 then
 			eventsToFire = self._eventQueue
 			self._eventQueue = {}
 		end
@@ -814,7 +810,6 @@ function FullTask:CancelTask(taskId: string, force: boolean?)
 		return
 	end
 	self.mutex:lock()
-	local eventsToFire
 	local success, result = pcall(function()
 		return self:_internalCancelTask(taskId, force)
 	end)
@@ -922,7 +917,6 @@ function FullTask:_processScheduledTasks()
 	local now = os.time()
 	local tasksToProcess = {}
 	local tasksToEnqueue = {}
-	local eventsToFire
 	self.mutex:lock()
 	local pcall_success, pcall_err = pcall(function()
 		for id, _Task in pairs(self.scheduledTasks) do
@@ -971,7 +965,6 @@ end
 function FullTask:_processWaitingTasks()
 	local tasksToResume = {}
 	local tasksToCleanup = {}
-	local eventsToFire
 	self.mutex:lock()
 	for id, _Task in pairs(self.runningTasks) do
 		if _Task.state == TaskState.WAITING then
@@ -999,7 +992,7 @@ function FullTask:_processWaitingTasks()
 			self.runningTasks[_Task.id] = nil
 			self:_queueEvent(self.signals.taskFailed, _Task, tostring(result))
 			local eventsToFire
-	if #self._eventQueue > 0 then
+			if #self._eventQueue > 0 then
 				eventsToFire = self._eventQueue
 				self._eventQueue = {}
 			end
@@ -1176,7 +1169,6 @@ function FullTask:AbortTask(id)
 		return false, "Task manager destroyed."
 	end
 	self.mutex:lock()
-	local eventsToFire
 	local pcall_results = { pcall(function()
 		return self:_internalAbortTask(id)
 	end) }
@@ -1454,7 +1446,6 @@ function FullTask:Destroy()
 	end
 	_globalMutex:unlock()
 	self.mutex:lock()
-	local eventsToFire
 	local success, result = pcall(function()
 		return self:_internalDestroy()
 	end)
@@ -1699,7 +1690,6 @@ function FullTask:Transaction(transactionFn: (tx: TypeDef.FullTask) -> ...any)
 		return
 	end
 	self.mutex:lock()
-	local eventsToFire
 	local tx_pcall_results = { pcall(function()
 		local journal = { actions = {} }
 		local tx = {}
@@ -1800,7 +1790,6 @@ function FullTask:BulkCancel(taskIds: {string}, force: boolean?)
 		return 0
 	end
 	self.mutex:lock()
-	local eventsToFire
 	local pcall_results = { pcall(function()
 		return self:_internalBulkCancel(taskIds, force)
 	end) }
@@ -1873,7 +1862,6 @@ function FullTask:CancelByPattern(patOrFn: string | ((task: Task) -> boolean), f
 		return 0
 	end
 	self.mutex:lock()
-	local eventsToFire
 	local pcall_results = { pcall(function()
 		return self:_internalCancelByPattern(patOrFn, force)
 	end) }

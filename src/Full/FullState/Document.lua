@@ -1,6 +1,6 @@
 --[[
 	[ FULLSTATE DOCUMENTATION ]
-	Version: 0.1.1 (STABLE) 
+	Version: 1.1.0 (STABLE) 
 
 	Author: Kel (@GudEveningBois) 
 
