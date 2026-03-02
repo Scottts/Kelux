@@ -12,7 +12,7 @@
 		None
 	]
 ]]
-local Version = "3.56.4 (STABLE)"
+local Version = "3.56.9 (STABLE)"
 -- Dependencies
 -- Adjust all of these positions if used elsewhere...
 local TypeDef = require(script.TypeDef)
@@ -292,12 +292,8 @@ function FullCache:_ensureMemoryForSize(additionalSize)
 		if _dictSize(self._dict) > 0 then
 			local victimKey = self._policy.evict and self._policy:evict()
 			if victimKey then
-				local entry = self._dict[victimKey]
-				local victimSize = entry and entry._size or 0
-				if victimSize > 0 then
-					self:_RemoveInternal(victimKey, false)
-					freedMemoryInIteration = true
-				end
+				self:_RemoveInternal(victimKey, false)
+				freedMemoryInIteration = true
 			end
 		end
 		if not freedMemoryInIteration and self._arrayCount > 0 then
@@ -307,7 +303,7 @@ function FullCache:_ensureMemoryForSize(additionalSize)
 		end
 		if not freedMemoryInIteration then
 			Debugger:Log("warn", "_ensureMemoryForSize", "Failed to free memory; no eviction candidates found.")
-			return false -- Explicitly fail
+			return false
 		end
 	end
 	return true
@@ -514,6 +510,17 @@ function FullCache:_getReadOnly(realKey)
 	end
 	return finalValue
 end
+local function _publicValueFromArrayEntry(entry)
+	if not entry then return nil end
+	if (entry.compressionType or entry.originalFormat)
+		and type(entry._json) == "string"
+		and entry._json ~= ""
+	then
+		local ok, decoded = pcall(HttpService.JSONDecode, HttpService, entry._json)
+		if ok then return decoded end
+	end
+	return entry.value
+end
 function FullCache:_prepareEntry(value, existingEntry)
 	local format = self._formatType
 	local entry = {value = value}
@@ -583,9 +590,9 @@ function FullCache:_prepareEntry(value, existingEntry)
 						entry.originalFormat = format
 						entry._size = #result
 					else
-						entry._size = 0
-						entry._json = ""
-						Debugger:Log("warn", "_prepareEntry", ("Failed to serialize or size value. Type: %s")
+						-- Compression failed; fall back to uncompressed entry sizing
+						-- NOTE: Do NOT zero out _size/_json, because that breaks memory accounting and eviction!
+						Debugger:Log("warn", "_prepareEntry", ("Compression failed; using uncompressed entry. Type: %s")
 							:format(type(value)))
 					end
 				end
@@ -770,6 +777,10 @@ function FullCache:_setInternal(key, value)
 	return value
 end
 function FullCache:_setWithTTLInternal(key, value, ttl)
+	if type(ttl) ~= "number" or ttl ~= ttl or ttl <= 0 then
+		Debugger:Log("error", "_setWithTTLInternal", "ttl must be a positive number.")
+		return nil
+	end
 	local realKey = normalizeKey(key)
 	local existingEntry = self._dict[realKey]
 	if existingEntry then
@@ -849,12 +860,32 @@ function FullCache.Create<T>(CacheName:string, MaxObjects:number?, Opts:CreateOp
 				evictions = 0,
 				startTime = cache:_getTime(),
 			}
-			-- Reset memory counters
-			cache._arrayMemoryUsage = 0
-			cache._dictMemoryUsage  = 0
-			-- Enforce the new memory budget immediately
+			-- Enforce the new memory budget using the current counters first
 			if cache._memoryUsage > cache._memoryBudget then
 				cache:_pruneByMemory(0)
+			end
+			-- Now rebuild counters from survivors
+			cache._arrayMemoryUsage = 0
+			cache._dictMemoryUsage  = 0
+			if cache._forEachArrayEntry then
+				cache:_forEachArrayEntry(function(entry)
+					cache._arrayMemoryUsage += (entry._size or 0)
+				end)
+			else
+				for _, entry in ipairs(cache._array) do
+					cache._arrayMemoryUsage += (entry._size or 0)
+				end
+			end
+			for _, entry in pairs(cache._dict) do
+				cache._dictMemoryUsage += (entry._size or 0)
+			end
+			cache._memoryUsage = cache._arrayMemoryUsage + cache._dictMemoryUsage
+			cache:_memoryUpdate()
+			-- If we’re still above budget after recompute, prune again
+			if cache._memoryUsage > cache._memoryBudget then
+				cache:_pruneByMemory(0)
+				cache._memoryUsage = cache._arrayMemoryUsage + cache._dictMemoryUsage
+				cache:_memoryUpdate()
 			end
 			-- Evict until under the new limit
 			while _dictSize(cache._dict) > maxObjs do
@@ -862,13 +893,13 @@ function FullCache.Create<T>(CacheName:string, MaxObjects:number?, Opts:CreateOp
 				if not victim then break end
 				cache:_RemoveInternal(victim, false)
 			end
-			while #cache._array > maxObjs do
-				cache._evictArrayOne()
+			while cache._arrayCount > maxObjs do
+				cache:_evictArrayOne()
 			end
-			-- Recalculate memory usage for survivors
-			for _, entry in ipairs(cache._array) do
+			cache._arrayMemoryUsage = 0
+			cache:_forEachArrayEntry(function(entry)
 				cache._arrayMemoryUsage += (entry._size or 0)
-			end
+			end)
 			for _, entry in pairs(cache._dict) do
 				cache._dictMemoryUsage += (entry._size or 0)
 			end
@@ -1281,7 +1312,6 @@ function FullCache:Update(key: string|{any}, updaterFn: (currentValue: T) -> T)
 		return
 	end
 	self._mutex:lock()
-	local eventsToFire
 	local success, result = pcall(function()
 		local realKey = normalizeKey(key)
 		local currentValue = self:_getInternal(realKey, true)
@@ -1395,7 +1425,6 @@ function FullCache:Get(key:string|{any}, SkipExpire:bool?):T?
 		return nil
 	end
 	self._mutex:lock()
-	local eventsToFire
 	local success, result = pcall(function()
 		return self:_getInternal(key, SkipExpire)
 	end)
@@ -1665,13 +1694,21 @@ function FullCache:Clear():()
 	end
 	self._mutex:lock()
 	local success, result = pcall(function()
+		-- stop services
+		self._ttl:stop()
+		-- reset core state
 		self._dict, self._array = {}, {}
 		self._virtuals = {}
+		self._loading = {}
+		self._loadSignals = {}
 		self._watchers = {}
+		-- reset array pointers
 		self._arrayHead = 1
 		self._arrayLogicalEnd = 0
 		self._arrayCount = 0
-		self._ttl:stop()
+		-- reset tries
+		self._keyTrie = Trie.new()
+		-- reset memory + metrics
 		self._memoryUsage = 0
 		self._arrayMemoryUsage = 0
 		self._dictMemoryUsage = 0
@@ -1681,23 +1718,16 @@ function FullCache:Clear():()
 			evictions = 0,
 			startTime = self:_getTime(),
 		}
-		self._watchSignal = Signal.new()
-		self._evictSignal = Signal.new()
-		self._memorySignal = Signal.new()
-		self._hitSignal  = Signal.new()
-		self._missSignal = Signal.new()
 		self:_memoryUpdate()
-		if self._policy.clear then
+		-- reset policy (keep the same module if possible)
+		if self._policy and self._policy.clear then
 			self._policy:clear()
 		else
 			local module = self._policyModule or Policies.FIFO
 			self._policy = module.new(self._maxobj, self)
+			self._policyModule = module
 		end
-		if self._policyModule and self._policyModule.__name then
-			self._policyName = self._policyModule.__name:upper()
-		else
-			self._policyName = "FIFO"
-		end
+		-- rebuild TTL cleanly
 		self._ttl = TTL.new(self, self._ttlCapacity, self._ttlFilter)
 		self._ttl:start()
 	end)
@@ -1732,10 +1762,15 @@ function FullCache:GetAll():{T}
 		end
 		local res = {}
 		self:_forEachArrayEntry(function(entry, logicalIdx)
-			table.insert(res, entry.value)
+			table.insert(res, _publicValueFromArrayEntry(entry))
 		end)
-		for _, entryInDict in pairs(self._dict) do
-			table.insert(res, entryInDict.value)
+		for internalID, entryInDict in pairs(self._dict) do
+			if not entryInDict.expires or self:_getTime() <= entryInDict.expires then
+				local v = self:_getReadOnly(internalID)
+				if v ~= nil then
+					table.insert(res, v)
+				end
+			end
 		end
 		return res
 	end)
@@ -1908,6 +1943,10 @@ function FullCache:SetWithTTL(key:string|{any}, value:T, ttl:number):T
 	if self._readOnly then
 		Debugger:Log("warn", "SetWithTTL", "Cache is in read-only mode; operation ignored.")
 		return
+	end
+	if type(ttl) ~= "number" or ttl ~= ttl or ttl <= 0 then
+		Debugger:Log("error", "SetWithTTL", "ttl must be a positive number.")
+		return nil
 	end
 	self._mutex:lock()
 	local eventsToFire
@@ -2098,9 +2137,9 @@ function FullCache:Peek(key:string|{any}):T?
 	local realKey = normalizeKey(key)
 	local entry = self._dict[realKey]
 	if entry and (not entry.expires or self:_getTime() <= entry.expires) then
-		return entry.value
+		return self:_getReadOnly(normalizeKey(key))
 	end
-	return nil
+	return self:_getReadOnly(realKey)
 end
 
 function FullCache:Keys():{string|{any}}
@@ -2153,11 +2192,17 @@ function FullCache:Values():{T}
 		end
 		local out = {}
 		self:_forEachArrayEntry(function(entry)
-			table.insert(out, entry.value)
+			local v = _publicValueFromArrayEntry(entry)
+			if v ~= nil then
+				table.insert(out, v)
+			end
 		end)
 		for internalID, entry in pairs(self._dict) do
 			if not entry.expires or self:_getTime() <= entry.expires then
-				table.insert(out, entry.value)
+				local v = self:_getReadOnly(internalID)
+				if v ~= nil then
+					table.insert(out, v)
+				end
 			end
 		end
 		return out
@@ -2192,12 +2237,12 @@ function FullCache:ForEach(fn:(key,value)->())
 			self._ttl:_expireLoop()
 		end
 		self:_forEachArrayEntry(function(entry, logicalIdx)
-			fn(logicalIdx, entry.value)
+			fn(logicalIdx, _publicValueFromArrayEntry(entry))
 		end)
 		for internalID, entry in pairs(self._dict) do
 			if not entry.expires or self:_getTime() <= entry.expires then
 				local origKey = idToTable[internalID] or internalID
-				fn(origKey, entry.value)
+				fn(origKey, self:_getReadOnly(internalID))
 			end
 		end
 	end)
@@ -2251,6 +2296,24 @@ function FullCache:BulkSet(entries:{[string|{any}]:T}, options:{parallel:number?
 				return encoded
 			end
 			local resultsByWorker = self:_executeParallel(entryList, encodeTask, options.parallel)
+			local totalNew = 0
+			local totalOld = 0
+			for _, workerChunk in ipairs(resultsByWorker) do
+				if workerChunk then
+					for _, itemData in ipairs(workerChunk) do
+						local rk = normalizeKey(itemData.key)
+						local old = self._dict[rk]
+						totalNew += (itemData.entryData and itemData.entryData._size or 0)
+						totalOld += (old and old._size or 0)
+					end
+				end
+			end
+
+			local net = totalNew - totalOld
+			if net > 0 and not self:_ensureMemoryForSize(net) then
+				Debugger:Log("error", "BulkSet", "Not enough memory for parallel BulkSet after pruning.")
+				return
+			end
 			self:_pause()
 			for _, workerChunk in ipairs(resultsByWorker) do
 				if workerChunk then
@@ -2573,7 +2636,7 @@ function FullCache:Resize(newMax:number)
 			if not victim then break end
 			self:_RemoveInternal(victim, false)
 		end
-		while #self._array > newMax do
+		while self._arrayCount > newMax do
 			self:_evictArrayOne()
 		end
 	end)
@@ -2699,7 +2762,6 @@ function FullCache:Watch():(() -> TypeDef.WatchEvent<T>?, () -> ())
 		return function() end, function() end
 	end
 	self._mutex:lock()
-	local eventsToFire
 	local success, result = pcall(function()
 		local eventQueue = {}
 		local id = HttpService:GenerateGUID(false)
@@ -3126,7 +3188,7 @@ function FullCache:Restore(snapshot:TypeDef.SnapshotData<T>)
 	local success, result = pcall(function()
 		if not snapshot or type(snapshot) ~= "table" then
 			Debugger:Log("error", "Restore", "Invalid or malformed snapshot provided.")
-			return
+			return nil
 		end
 		-- Partial restore
 		if snapshot.partial_dict and type(snapshot.partial_dict) == "table" then
@@ -3135,12 +3197,14 @@ function FullCache:Restore(snapshot:TypeDef.SnapshotData<T>)
 				local netSizeChange = 0
 				local itemsToRestore = {}
 				for key, entry in pairs(snapshot.partial_dict) do
+					local realKey = normalizeKey(key)
 					local oldSize = 0
-					if self._dict[key] then
-						oldSize = self._dict[key]._size or 0
+					if self._dict[realKey] then
+						oldSize = self._dict[realKey]._size or 0
 					end
-					netSizeChange = netSizeChange + ((entry._size or 0) - oldSize)
-					table.insert(itemsToRestore, {key = key, entry = entry})
+					local sz = tonumber(entry._size) or 0
+					netSizeChange = netSizeChange + (sz - oldSize)
+					table.insert(itemsToRestore, {key = realKey, entry = entry})
 				end
 				if netSizeChange > 0 then
 					if not self:_ensureMemoryForSize(netSizeChange) then
@@ -3153,28 +3217,44 @@ function FullCache:Restore(snapshot:TypeDef.SnapshotData<T>)
 						self:_RemoveInternal(key, false)
 					end
 					local newEntry = _deepClone(newEntryData)
+					newEntry._size = tonumber(newEntry._size) or 0
 					self._dict[key] = newEntry
 					self:_addMemoryUsage(newEntry._size, "dict")
+					if not self._policy then
+						error("Cache policy missing during partial restore.")
+					end
+					if self._policy and self._policy.remove then
+						pcall(function() self._policy:remove(key) end)
+					end
 					self._policy:insert(key)
-					if type(key) == "string" then
-						self._keyTrie:insert(key, stringToSequence(key), function() end)
+					local realKey = normalizeKey(key)
+					if type(realKey) == "string" then
+						self._keyTrie:insert(realKey, stringToSequence(realKey), function() end)
 					end
 					if newEntry.expires then
-						self._ttl:push(key, newEntry.expires)
+						if self._ttl and self._ttl.invalidate then
+							pcall(function() self._ttl:invalidate(key) end)
+						end
+						if self._ttl then
+							self._ttl:push(key, newEntry.expires)
+						end
 					end
 				end
 				self:_memoryUpdate()
 				self:_resume()
+				return true
 			end)
 			if not success then
 				self:_resume()
 				Debugger:Log("error", "Restore", ("Partial restore failed: %s. Cache may be in an inconsistent state.")
 					:format(err))
+				return nil
 			end
-			return
+			return true
 		end
 		if not (snapshot and snapshot.dict and snapshot.policyName) then
 			Debugger:Log("error", "Restore", "Invalid or malformed full snapshot provided.")
+			return nil
 		end
 		-- Save the current state to enable rollback on failure
 		local oldState = {
@@ -3199,11 +3279,13 @@ function FullCache:Restore(snapshot:TypeDef.SnapshotData<T>)
 			_ttl = self._ttl
 		}
 		local success, err = pcall(function()
-			self._ttl:stop()
+			if self._ttl and self._ttl.stop then
+				self._ttl:stop()
+			end
 			-- Restore raw state from snapshot
 			self._array = _deepClone(snapshot.array)
 			self._dict = _deepClone(snapshot.dict)
-			self._keyTrie:clear()
+			self._keyTrie = Trie.new()
 			for key, _ in pairs(self._dict) do
 				if type(key) == "string" then
 					self._keyTrie:insert(key, stringToSequence(key), function() end)
@@ -3240,8 +3322,12 @@ function FullCache:Restore(snapshot:TypeDef.SnapshotData<T>)
 				end
 			end
 			self._ttl:start()
+			return true
 		end)
 		if not success then
+			if self._ttl and self._ttl.stop then
+				pcall(function() self._ttl:stop() end)
+			end
 			for k, v in pairs(oldState) do
 				self[k] = v
 			end
@@ -3250,7 +3336,9 @@ function FullCache:Restore(snapshot:TypeDef.SnapshotData<T>)
 			end
 			Debugger:Log("error", "Restore", ("Restore failed and was rolled back: %s")
 				:format(err))
+			return nil
 		end
+		return true
 	end)
 	local eventsToFire
 	if #self._eventQueue > 0 then
@@ -3344,9 +3432,7 @@ function FullCache:Transaction(transactionFn: (cache: TypeDef.FullCache) -> any)
 		local val = txCache:Get(key)
 		return val ~= nil
 	end
-	setmetatable(txCache, { __index = self })
 	self._mutex:lock()
-	local eventsToFire
 	local success, results = pcall(transactionFn, txCache)
 	if success then
 		for key, change in pairs(journal) do
@@ -3356,7 +3442,30 @@ function FullCache:Transaction(transactionFn: (cache: TypeDef.FullCache) -> any)
 				self:_RemoveInternal(key, false)
 			end
 			if change.metadata then
-				self:SetMetadata(key, change.metadata)
+				local entry = self._dict[key]
+				if entry then
+					local oldMetaSize = 0
+					if entry._metadata then
+						local okOld, oldJson = pcall(HttpService.JSONEncode, HttpService, entry._metadata)
+						oldMetaSize = (okOld and type(oldJson) == "string") and #oldJson or 0
+					end
+					local okNew, newJson = pcall(HttpService.JSONEncode, HttpService, change.metadata)
+					if okNew and type(newJson) == "string" then
+						local newMetaSize = #newJson
+						local delta = newMetaSize - oldMetaSize
+						if delta > 0 and not self:_ensureMemoryForSize(delta) then
+							Debugger:Log("warn", "Transaction", "Not enough memory to apply metadata; skipping metadata change.")
+						else
+							entry._metadata = _deepClone(change.metadata)
+							entry._size = (entry._size or 0) + delta
+							self._dictMemoryUsage += delta
+							self._memoryUsage = self._arrayMemoryUsage + self._dictMemoryUsage
+							self:_memoryUpdate()
+						end
+					else
+						Debugger:Log("warn", "Transaction", "Failed to serialize metadata; skipping metadata change.")
+					end
+				end
 			end
 		end
 	end
@@ -3372,7 +3481,7 @@ function FullCache:Transaction(transactionFn: (cache: TypeDef.FullCache) -> any)
 		end
 	end
 	if not success then
-		Debugger:Log("error", "ResetMetrics", ("Internal failure: %s\n%s")
+		Debugger:Log("error", "Transaction", ("Internal failure: %s\n%s")
 			:format(tostring(results), debug.traceback(nil, 2)))
 		return nil
 	end

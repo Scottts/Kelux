@@ -1,7 +1,7 @@
 -- DO NOT EDIT IF YOU DON'T KNOW WHAT YOU'RE DOING
 local TTL = {}
 TTL.__index = TTL
-local BloomFilter = script.Parent.Algorithms.BloomFilter
+local BloomFilter = require(script.Parent.Algorithms.BloomFilter)
 local CuckooFilter = require(script.Parent.Algorithms.CuckooFilter)
 
 local BloomFilterAdapter = {}
