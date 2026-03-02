@@ -7,7 +7,7 @@
 	
 	Read documentary in FullTask.Documentary
 ]]
-local VERSION = "1.38.5 (STABLE)"
+local VERSION = "1.38.7 (STABLE)"
 
 local FullTask = {}
 FullTask.__index = FullTask
@@ -53,17 +53,59 @@ function FullTask:_getTime()
 	return os.time()
 end
 
+local function normalizeDependencies(deps)
+	if deps == nil then
+		return {}
+	end
+	if type(deps) ~= "table" then
+		return {}
+	end
+	local out = {}
+	local seen = {}
+	if #deps > 0 then
+		for _, id in ipairs(deps) do
+			if type(id) == "string" and id ~= "" and not seen[id] then
+				seen[id] = true
+				table.insert(out, id)
+			end
+		end
+		return out
+	end
+	for k, v in pairs(deps) do
+		if type(k) == "string" and v == true and k ~= "" and not seen[k] then
+			seen[k] = true
+			table.insert(out, k)
+		elseif type(v) == "string" and v ~= "" and not seen[v] then
+			seen[v] = true
+			table.insert(out, v)
+		end
+	end
+	table.sort(out)
+	return out
+end
+
+local _hashFallbackCounter = 0
+local function _safeEncodeForHash(v)
+	local ok, s = pcall(HttpService.JSONEncode, HttpService, v)
+	if ok and type(s) == "string" then
+		return s
+	end
+	_hashFallbackCounter += 1
+	return ("<unencodable:%s:%d>")
+		:format(HttpService:GenerateGUID(false), _hashFallbackCounter)
+end
+
 local function generateContentHashFromOptions(fn, options)
 	options = options or {}
 	local hashInput = {
 		tostring(fn),
 		options.name or "",
-		HttpService:JSONEncode(options.data or {}),
+		_safeEncodeForHash(options.data or {}),
 		options.priority or Priority.NORMAL,
 		options.maxRetries or 0,
 		options.timeout or 0,
-		HttpService:JSONEncode(options.resources or {}),
-		HttpService:JSONEncode(options.dependencies or {}),
+		_safeEncodeForHash(options.resources or {}),
+		_safeEncodeForHash(options.dependencies or {}),
 		options.cronExpression or "",
 	}
 	if options.id then
@@ -72,6 +114,7 @@ local function generateContentHashFromOptions(fn, options)
 	local serializedContent = HttpService:JSONEncode(hashInput)
 	return CHF.SHA256(serializedContent)
 end
+
 local _taskManagers = {}
 local _globalMutex = Mutex.new()
 
@@ -136,7 +179,7 @@ function Task.new(fn, options)
 		maxRetries = options.maxRetries or 0,
 		timeout = options.timeout,
 		resources = options.resources or {},
-		dependencies = options.dependencies or {},
+		dependencies = normalizeDependencies(options.dependencies),
 		dependents = {},
 		scheduledFor = options.scheduledFor,
 		cronExpression = options.cronExpression,
@@ -180,17 +223,43 @@ end
 function FullTask:_internalTimeoutTask(taskId)
 	self.mutex:lock()
 	local _Task = self.tasks[taskId]
-	if not _Task then 
+	if not _Task or _Task.state ~= TaskState.RUNNING then
 		self.mutex:unlock()
-		return 
+		return
 	end
-	if _Task.state ~= TaskState.RUNNING then
-		self.mutex:unlock()
-		return 
-	end
-	_Task:setState(TaskState.FAILED)
 	_Task.error = "Task timed out after "..tostring(_Task.timeout).."s"
-	self.metrics.tasksFailed = self.metrics.tasksFailed + 1
+	_Task:setState(TaskState.FAILED)
+	self.metrics.tasksFailed += 1
+	local thread = _Task.thread
+	local canStop = (thread and type(thread) == "thread" and 
+		coroutine.status(thread) ~= "dead" and coroutine.close ~= nil)
+	local stopped = false
+	if canStop then
+		local ok = pcall(function() coroutine.close(thread) end)
+		stopped = ok
+	elseif thread and type(thread) == "thread" and coroutine.status(thread) == "dead" then
+		stopped = true
+	end
+	if stopped then
+		self:_releaseResources(_Task)
+		for resourceName, amount in pairs(_Task.resources) do
+			self:_queueEvent(self.signals.resourceReleased, _Task.id, resourceName, amount)
+		end
+		self.runningTasks[_Task.id] = nil
+		_Task._heapNode = nil
+		local runningCount = 0
+		for _ in pairs(self.runningTasks) do runningCount += 1 end
+		self.currentConcurrency = runningCount
+		self.metrics.currentConcurrency = runningCount
+		if self.ttlService then
+			self.ttlService:invalidate(_Task.id)
+		end
+		local okSeq, seq = pcall(_stringToSequence, _Task.name)
+		if okSeq and seq then
+			self.nameTrie:remove(_Task.id, seq)
+		end
+		self:_queueEvent(self.signals.taskFailed, _Task)
+	end
 	self.mutex:unlock()
 end
 
@@ -257,6 +326,7 @@ function FullTask.Create(NameOrConfig, Options)
 	local function onExpire(taskId)
 		self:_internalTimeoutTask(taskId)
 	end
+	self._onExpire = onExpire
 	self.ttlService = TTLService.new(self, nil, nil, onExpire)
 	self.ttlService:start()
 	self._resourceLimits = config.resourceLimits or {}
@@ -501,6 +571,7 @@ function FullTask:_processQueue()
 		local node = self.priorityQueue:getMin()
 		if not node or not node.value then break end
 		self.priorityQueue:extractMin()
+		node.value._heapNode = nil
 		table.insert(candidates, node.value)
 	end
 	self.metrics.tasksInQueue = self.priorityQueue.size
@@ -544,7 +615,8 @@ function FullTask:_processQueue()
 		table.insert(tasksToExecute, _Task)
 	end
 	for _, rTask in ipairs(reinserts) do
-		local newHeapKey = (Priority.CRITICAL - rTask.priority) * 1e12 + (os.time() + 0.001)
+		local newHeapKey = (Priority.CRITICAL - rTask.priority)
+			* 1e12 + (os.time() + 0.001); rTask._heapNode = nil
 		rTask._heapNode = self.priorityQueue:insert(newHeapKey, rTask)
 	end
 	self.metrics.tasksInQueue = self.priorityQueue.size
@@ -785,12 +857,32 @@ function FullTask:_internalCancelTask(taskId: string, force: boolean?)
 		self.nameTrie:remove(_Task.id, seq)
 	end
 	if previousState == TaskState.RUNNING then
-		self.runningTasks[taskId] = nil
-		self.currentConcurrency = math.max(0, (self.currentConcurrency or 0) - 1)
-		if self.metrics then self.metrics.currentConcurrency = self.currentConcurrency end
-		if _Task.thread and coroutine.status(_Task.thread) ~= "dead" then
-			pcall(function() coroutine.close(_Task.thread) end)
+		local stopped = false
+		if _Task.thread and coroutine.close and coroutine.status(_Task.thread) ~= "dead" then
+			local ok = pcall(function() coroutine.close(_Task.thread) end)
+			stopped = ok
+		elseif _Task.thread and type(_Task.thread) == "thread" 
+			and coroutine.status(_Task.thread) == "dead" then
+			stopped = true
 		end
+		if not stopped then
+			Debugger:Log("warn", "CancelTask",
+				("Failed to stop running task %s; cannot safely release resources.")
+					:format(taskId))
+			return false
+		end
+		self:_releaseResources(_Task)
+		for resourceName, amount in pairs(_Task.resources) do
+			self:_queueEvent(self.signals.resourceReleased, _Task.id, resourceName, amount)
+		end
+		if self.ttlService then
+			self.ttlService:invalidate(taskId)
+		end
+		self.runningTasks[taskId] = nil
+		local runningCount = 0
+		for _ in pairs(self.runningTasks) do runningCount += 1 end
+		self.currentConcurrency = runningCount
+		if self.metrics then self.metrics.currentConcurrency = runningCount end
 	end
 	if self and self.scheduledTasks[taskId] then
 		self.scheduledTasks[taskId] = nil
@@ -798,7 +890,8 @@ function FullTask:_internalCancelTask(taskId: string, force: boolean?)
 	local heapNode = _Task._heapNode
 	if heapNode then
 		self.priorityQueue:delete(heapNode)
-		self.metrics.tasksInQueue = self.metrics.tasksInQueue - 1
+		_Task._heapNode = nil
+		self.metrics.tasksInQueue = self.priorityQueue.size
 	end
 	self:_queueEvent(self.signals.taskCancelled, _Task)
 	return true
@@ -968,13 +1061,22 @@ function FullTask:_processWaitingTasks()
 	self.mutex:lock()
 	for id, _Task in pairs(self.runningTasks) do
 		if _Task.state == TaskState.WAITING then
-			local status = coroutine.status(_Task.coroutine)
-			if status == "suspended" then
-				table.insert(tasksToResume, _Task)
-			elseif status == "dead" then
-				Debugger:Log("warn", "FullTask:_processWaitingTasks", ("Task %s in WAITING state but coroutine is DEAD. Removing.")
-					:format(_Task.id))
+			local thread = _Task.thread
+			if thread == nil or type(thread) ~= "thread" then
+				Debugger:Log("warn", "FullTask:_processWaitingTasks",
+					("Task %s is WAITING but has no valid thread; removing.")
+						:format(tostring(_Task.id)))
 				table.insert(tasksToCleanup, id)
+			else
+				local status = coroutine.status(thread)
+				if status == "suspended" then
+					table.insert(tasksToResume, _Task)
+				elseif status == "dead" then
+					Debugger:Log("warn", "FullTask:_processWaitingTasks",
+						("Task %s is WAITING but thread is DEAD; removing.")
+							:format(tostring(_Task.id)))
+					table.insert(tasksToCleanup, id)
+				end
 			end
 		end
 	end
@@ -983,23 +1085,26 @@ function FullTask:_processWaitingTasks()
 	end
 	self.mutex:unlock()
 	for _, _Task in ipairs(tasksToResume) do
-		local success, result = coroutine.resume(_Task.coroutine)
-		if not success then
-			Debugger:Log("error", "FullTask:_processWaitingTasks", ("Coroutine for task %s errored during resume while WAITING: %s")
-				:format(_Task.id, tostring(result)))
-			self.mutex:lock()
-			_Task:setState(TaskState.FAILED)
-			self.runningTasks[_Task.id] = nil
-			self:_queueEvent(self.signals.taskFailed, _Task, tostring(result))
-			local eventsToFire
-			if #self._eventQueue > 0 then
-				eventsToFire = self._eventQueue
-				self._eventQueue = {}
-			end
-			self.mutex:unlock()
-			if eventsToFire then
-				for _, event in ipairs(eventsToFire) do
-					pcall(event.Signal.Fire, event.Signal, unpack(event.Args))
+		local thread = _Task.thread
+		if thread and coroutine.status(thread) == "suspended" then
+			local ok, err = coroutine.resume(thread)
+			if not ok then
+				self.mutex:lock()
+				_Task.error = err
+				_Task:setState(TaskState.FAILED)
+				self.runningTasks[_Task.id] = nil
+				self:_queueEvent(self.signals.taskFailed, _Task, tostring(err))
+
+				local eventsToFire
+				if #self._eventQueue > 0 then
+					eventsToFire = self._eventQueue
+					self._eventQueue = {}
+				end
+				self.mutex:unlock()
+				if eventsToFire then
+					for _, event in ipairs(eventsToFire) do
+						pcall(event.Signal.Fire, event.Signal, unpack(event.Args))
+					end
 				end
 			end
 		end
@@ -1096,9 +1201,9 @@ function FullTask:_internalSetPriority(id, newPriority)
 	taskObj.priority = newPriority
 	if taskObj._heapNode and self.priorityQueue then
 		local newHeapKey = (Priority.CRITICAL - taskObj.priority) * 1e12 + (taskObj.submitTime)
-		if self.priorityQueue.UpdateKey then
+		if self.priorityQueue.updateKey then
 			local success, err = pcall(function()
-				self.priorityQueue:UpdateKey(taskObj._heapNode, newHeapKey)
+				self.priorityQueue:updateKey(taskObj._heapNode, newHeapKey)
 			end)
 			if not success then error(err) end
 		elseif self.priorityQueue.decreaseKey then
@@ -1151,10 +1256,26 @@ function FullTask:_internalAbortTask(id)
 			taskObj._heapNode = nil
 		end
 	elseif currentState == "RUNNING" then
-		self.runningTasks[id] = nil
-		self.currentConcurrency = math.max(0, self.currentConcurrency - 1)
-		if self.ttlService then
-			pcall(function() self.ttlService:invalidate(id) end)
+		local stopped = false
+		if taskObj.thread and coroutine.close and coroutine.status(taskObj.thread) ~= "dead" then
+			local ok = pcall(function() coroutine.close(taskObj.thread) end)
+			stopped = ok
+		elseif taskObj.thread and type(taskObj.thread) == "thread" 
+			and coroutine.status(taskObj.thread) == "dead" then
+			stopped = true
+		end
+		if stopped then
+			self:_releaseResources(taskObj)
+			for resourceName, amount in pairs(taskObj.resources) do
+				self:_queueEvent(self.signals.resourceReleased, taskObj.id, resourceName, amount)
+			end
+			if self.ttlService then
+				pcall(function() self.ttlService:invalidate(id) end)
+			end
+			self.runningTasks[id] = nil
+			self.currentConcurrency = math.max(0, self.currentConcurrency - 1)
+		else
+			return false, "Failed to abort running task (thread could not be stopped)."
 		end
 	end
 	taskObj.state = "CANCELLED"
@@ -1354,7 +1475,7 @@ function FullTask:Resume()
 			:format(err, debug.traceback(nil, 2)))
 		return false, err
 	end
-	local internal_success = pcall_results[2]
+--	local internal_success = pcall_results[2]
 	return table.unpack(pcall_results, 2, #pcall_results)
 end
 
@@ -1548,6 +1669,7 @@ function FullTask:_internalClear()
 	self.scheduledTasks = {}
 	self.tasksByContentHash = {}
 	self.currentConcurrency = 0
+	self.nameTrie = Trie.new()
 	local heapType = (self.priorityQueue and self.priorityQueue.updateKey)
 		and "fibonacciheap" or "pairingheap"
 	if heapType == "fibonacciheap" then
@@ -1561,8 +1683,9 @@ function FullTask:_internalClear()
 	self._resourceSemaphores = {}
 	if self.ttlService then
 		self.ttlService:stop()
-		self.ttlService = TTLService.new(self)
 	end
+	self.ttlService = TTLService.new(self, nil, nil, self._onExpire)
+	self.ttlService:start()
 	self.metrics = {
 		totalTasksSubmitted = 0,
 		tasksCompleted = 0,
@@ -1582,6 +1705,7 @@ function FullTask:_internalRestore(snapshotData: TypeDef.FullTaskSnapshot, funct
 	self:_internalClear()
 	self.maxConcurrency = snapshotData.config.maxConcurrency or self.maxConcurrency
 	self._resourceLimits = deepCopy(snapshotData.config.resourceLimits) or {}
+	local now = os.time()
 	local tasksToRebuildDependents = {}
 	for id, taskData in pairs(snapshotData.tasks) do
 		local fn = functionMap[taskData.id] or functionMap[taskData.name]
@@ -1590,25 +1714,51 @@ function FullTask:_internalRestore(snapshotData: TypeDef.FullTaskSnapshot, funct
 				:format(id, taskData.name or "nil"))
 			continue
 		end
+		taskData.dependencies = normalizeDependencies(taskData.dependencies)
 		local _Task = Task.new(fn, taskData)
+		if not _Task then
+			continue
+		end
 		_Task.id = taskData.id
 		_Task.state = taskData.state
 		_Task.retries = taskData.retries
 		_Task.submitTime = taskData.submitTime
 		_Task.recurringCount = taskData.recurringCount
 		_Task.contentHash = taskData.contentHash
+		_Task.dependencies = _Task.dependencies or {}
+		_Task.dependents = _Task.dependents or {}
+		if _Task.isRecurring then
+			if (not _Task.scheduledFor) or (_Task.scheduledFor <= now) then
+				if _Task.parsedCron then
+					local nextRun = _Task.parsedCron:getNextRun(now)
+					_Task.scheduledFor = nextRun
+				end
+			end
+			if not _Task.scheduledFor then
+				Debugger:Log("warn", "_internalRestore",
+					("Recurring task %s has no next run after restore. Skipping."):format(_Task.id))
+				continue
+			end
+		end
 		self.tasks[_Task.id] = _Task
 		if _Task.contentHash then
 			self.tasksByContentHash[_Task.contentHash] = _Task.id
 		end
-		self.metrics.totalTasksSubmitted = self.metrics.totalTasksSubmitted + 1
+		if self.metrics then
+			self.metrics.totalTasksSubmitted = (self.metrics.totalTasksSubmitted or 0) + 1
+		end
+		do
+			local ok, seq = pcall(_stringToSequence, _Task.name)
+			if ok and seq then
+				self.nameTrie:insert(_Task.id, seq, function() end)
+			end
+		end
 		table.insert(tasksToRebuildDependents, _Task)
-		if _Task.state == TaskState.WAITING then
+		if _Task.isRecurring or (_Task.state == TaskState.WAITING and _Task.scheduledFor ~= nil) then
 			self.scheduledTasks[_Task.id] = _Task
 		elseif _Task.state == TaskState.PENDING then
 			local heapKey = (Priority.CRITICAL - _Task.priority) * 1e12 + (_Task.submitTime)
-			_Task._heapNode = self.priorityQueue:insert(heapKey, _Task)
-			self.metrics.tasksInQueue = self.metrics.tasksInQueue + 1
+			self:_relinkHeapNode(_Task, heapKey)
 		end
 	end
 	for _, taskObj in ipairs(tasksToRebuildDependents) do
@@ -1617,10 +1767,14 @@ function FullTask:_internalRestore(snapshotData: TypeDef.FullTaskSnapshot, funct
 			if depTask then
 				table.insert(depTask.dependents, taskObj.id)
 			else
-				Debugger:Log("warn", "_internalRestore", ("Restored task %s has a dependency (%s) that was not found in the snapshot.")
-					:format(taskObj.id, depId))
+				Debugger:Log("warn", "_internalRestore",
+					("Restored task %s has a dependency (%s) that was not found in the snapshot.")
+						:format(taskObj.id, depId))
 			end
 		end
+	end
+	if self.metrics and self.priorityQueue and self.priorityQueue.size then
+		self.metrics.tasksInQueue = self.priorityQueue.size
 	end
 	return true
 end
@@ -1721,7 +1875,10 @@ function FullTask:Transaction(transactionFn: (tx: TypeDef.FullTask) -> ...any)
 			})
 			return true
 		end
-		setmetatable(tx, { __index = self })
+		local manager = self
+		function tx:GetTask(id) return manager:_internalGetTask(id) end
+		function tx:GetTasks(status) return manager:_internalGetTasks(status) end
+		function tx:GetTaskDependencies(id) return manager:_internalGetTaskDependencies(id) end
 		local tx_fn_pcall_results = { pcall(transactionFn, tx) }
 		local tx_fn_success = tx_fn_pcall_results[1]
 		if not tx_fn_success then
@@ -1885,7 +2042,7 @@ function FullTask:CancelByPattern(patOrFn: string | ((task: Task) -> boolean), f
 	end
 	return table.unpack(pcall_results, 2, #pcall_results)
 end
-
 FullTask.TaskState = TaskState; FullTask.Priority = Priority
 FullTask.Version = VERSION; FullTask.Registry = _taskManagers
+------------------------------------------------------------------------------------------------------------
 return Debugger:Profile(FullTask, "Create", script) :: TypeDef.Static

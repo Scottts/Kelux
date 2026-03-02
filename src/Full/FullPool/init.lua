@@ -8,7 +8,7 @@
 	
 	Read documentary in FullPool.Documentary
 ]]
-local VERSION = "1.72.5 (STABLE)"
+local VERSION = "1.72.9 (STABLE)"
 -- Dependencies
 local TypeDef = require(script.TypeDef)
 local Signal = require(script.Parent.Parent.Components.KelSignal)
@@ -241,8 +241,8 @@ end
 
 function FullPool:_warmupPool(count)
 	if count <= 0 then return end
-	for i = 1, count do
-		if #self._idleInstances + #self._activeInstances >= self._maxSize then
+	for _ = 1, count do
+		if #self._idleInstances + _getActiveCount(self._activeInstances) >= self._maxSize then
 			break
 		end
 		local instance = self:_createInstance()
@@ -253,10 +253,14 @@ function FullPool:_warmupPool(count)
 end
 
 function FullPool:_leaseServiceLoop(forceSweep: boolean?)
-	if self._isDestroyed or (self._isPaused and not forceSweep) then 
-		return 
+	if self._isDestroyed or (self._isPaused and not forceSweep) then
+		return
 	end
 	local now = os.clock()
+	local expired = {}
+	local doShrink = false
+	local shrinkTarget = nil
+	self._lock:lock()
 	while not self._leaseHeap:isEmpty() and self._leaseHeap:getMin().key <= now do
 		local expiredNode = self._leaseHeap:extractMin()
 		local instance = expiredNode.value
@@ -264,17 +268,23 @@ function FullPool:_leaseServiceLoop(forceSweep: boolean?)
 		if metadata and metadata.heapNode == expiredNode then
 			metadata.heapNode = nil
 			self._stats.leaseExpirations += 1
-			pcall(function() self.OnLeaseExpired:Fire(instance, metadata.debugContext) end)
-			self:Return(instance)
+			table.insert(expired, { instance = instance, debugContext = metadata.debugContext })
 		end
 	end
 	if not forceSweep and self._autoShrinkDelay and self._lastReturnTime > 0 then
-		if (now - self._lastReturnTime >= self._autoShrinkDelay) then
-			if #self._idleInstances > self._initialSize then
-				self:Shrink(self._initialSize)
-			end
+		if (now - self._lastReturnTime >= self._autoShrinkDelay) and (#self._idleInstances > self._initialSize) then
+			doShrink = true
+			shrinkTarget = self._initialSize
 			self._lastReturnTime = 0
 		end
+	end
+	self._lock:unlock()
+	for _, item in ipairs(expired) do
+		pcall(function() self.OnLeaseExpired:Fire(item.instance, item.debugContext) end)
+		self:Return(item.instance)
+	end
+	if doShrink then
+		self:Shrink(shrinkTarget)
 	end
 end
 
@@ -460,9 +470,9 @@ function FullPool:Return(instance: Instance)
 	self._lock:unlock()
 end
 
-function FullPool:ReturnBy(predicate: (instance: Instance) -> boolean):number
-	if self._isDestroyed then 
-		Debugger:Log("error", "ReturnBy", "Pool is destroyed.") 
+function FullPool:ReturnBy(predicate: (instance: Instance) -> boolean): number
+	if self._isDestroyed then
+		Debugger:Log("error", "ReturnBy", "Pool is destroyed.")
 		return 0
 	end
 	if typeof(predicate) ~= "function" then
@@ -470,19 +480,21 @@ function FullPool:ReturnBy(predicate: (instance: Instance) -> boolean):number
 			:format(typeof(predicate)))
 		return 0
 	end
+	self._lock:lock()
 	local instancesToReturn = {}
 	for instance, _ in pairs(self._activeInstances) do
 		if predicate(instance) then
 			table.insert(instancesToReturn, instance)
 		end
 	end
+	self._lock:unlock()
 	if #instancesToReturn > 0 then
 		self:BulkReturn(instancesToReturn)
 	end
 	return #instancesToReturn
 end
 
-function FullPool:GetWithLease(ttl: number, priority: PoolPriority?, debugContext: any?): Instance?
+function FullPool:GetWithLease(ttl: number, priority: TypeDef.PoolPriority?, debugContext: any?): Instance?
 	if self._isDestroyed then 
 		Debugger:Log("error", "GetWithLease", "Pool is destroyed.") 
 	end
@@ -496,12 +508,14 @@ function FullPool:GetWithLease(ttl: number, priority: PoolPriority?, debugContex
 	if not instance then
 		return nil
 	end
+	self._lock:lock()
 	local metadata = self._activeInstances[instance]
 	if metadata then
 		metadata.leaseExpiry = os.clock() + ttl
 		metadata.originalTTL = ttl
 		metadata.heapNode = self._leaseHeap:insert(metadata.leaseExpiry, instance)
 	end
+	self._lock:unlock()
 	return instance
 end
 
@@ -558,14 +572,28 @@ function FullPool:Prefetch(count: number, onComplete: (() -> ())?)
 	end
 	task.spawn(function()
 		local success, err = pcall(function()
-			if self._isDestroyed or self._isReadOnly then return end
 			for i = 1, count do
 				if self._isDestroyed or self._isReadOnly then break end
-				if #self._idleInstances + _getActiveCount(self._activeInstances) >= self._maxSize then break end
+				self._lock:lock()
+				local full = (#self._idleInstances + _getActiveCount(self._activeInstances) >= self._maxSize)
+				self._lock:unlock()
+				if full then break end
 				local instance = self:_createInstance()
+				self._lock:lock()
+				if self._isDestroyed or self._isReadOnly then
+					self._lock:unlock()
+					pcall(function() instance:Destroy() end)
+					break
+				end
+				if #self._idleInstances + _getActiveCount(self._activeInstances) >= self._maxSize then
+					self._lock:unlock()
+					self:_destroyInstance(instance, "PoolAtCapacity")
+					break
+				end
 				self._stats.creations += 1
 				pcall(function() self.OnCreate:Fire(instance) end)
 				table.insert(self._idleInstances, instance)
+				self._lock:unlock()
 				if i % 10 == 0 then
 					task.wait()
 				end
@@ -602,12 +630,9 @@ function FullPool:BulkGet(count: number, priority: TypeDef.PoolPriority?): {Inst
 	return instances
 end
 
-function FullPool:BulkReturn(instances:{Instance})
+function FullPool:BulkReturn(instances: {Instance})
 	if self._isDestroyed then
 		Debugger:Log("error", "BulkReturn", "Pool is destroyed.")
-		return
-	end
-	if self._isDestroyed then
 		for _, instance in ipairs(instances) do
 			if typeof(instance) == "Instance" then
 				instance:Destroy()
@@ -615,41 +640,21 @@ function FullPool:BulkReturn(instances:{Instance})
 		end
 		return
 	end
+	if self._isReadOnly then
+		Debugger:Log("warn", "BulkReturn", "Pool is in read-only mode; operation ignored.")
+		return
+	end
 	self:Pause()
-	local returnedCount = 0
 	for _, instance in ipairs(instances) do
-		local meta = self._activeInstances[instance]
-		if meta then
-			if meta.isPinned then
-				meta.isPinned = false
-				self._stats.pinnedCount -= 1
-			end
-			self._activeInstances[instance] = nil
-			local success, err = pcall(self._cleanupInstance, self, instance)
-			if not success then
-				Debugger:Log("warn", "BulkReturn", ("Cleanup failed for instance %s: %s. Destroying instance.")
-					:format(tostring(instance), tostring(err)))
-				self:_destroyInstance(instance, "CleanupFailed")
-			else
-				local totalCount = #self._idleInstances + _getActiveCount(self._activeInstances)
-				if totalCount < self._maxSize then
-					table.insert(self._idleInstances, instance)
-				else
-					self:_destroyInstance(instance, "PoolAtCapacity")
-				end
-				pcall(function() self.OnReturn:Fire(instance) end)
-				returnedCount += 1
-			end
+		local ok, err = pcall(function()
+			self:Return(instance)
+		end)
+		if not ok then
+			Debugger:Log("warn", "BulkReturn", ("Return failed for %s: %s")
+				:format(tostring(instance), tostring(err)))
 		end
 	end
-	self._stats.returns += returnedCount
 	self:Resume()
-	for _ = 1, returnedCount do
-		self.OnInstanceAvailable:Fire()
-	end
-	if self._autoShrinkDelay and returnedCount > 0 then
-		self._lastReturnTime = os.clock()
-	end
 end
 
 function FullPool:Resize(newMaxSize: number)
@@ -669,14 +674,17 @@ function FullPool:Resize(newMaxSize: number)
 			:format(newMaxSize, activeCount))
 		return
 	end
+	local toDestroy = {}
+	self._lock:lock()
 	self._maxSize = newMaxSize or DEFAULT_MAX_SIZE
 	while #self._idleInstances + activeCount > newMaxSize do
-		local instanceToDestroy = table.remove(self._idleInstances, 1)
-		if instanceToDestroy then
-			self:_destroyInstance(instanceToDestroy, "Resize")
-		else
-			break
-		end
+		local inst = table.remove(self._idleInstances, 1)
+		if not inst then break end
+		table.insert(toDestroy, inst)
+	end
+	self._lock:unlock()
+	for _, inst in ipairs(toDestroy) do
+		self:_destroyInstance(inst, "Resize")
 	end
 end
 
@@ -718,45 +726,51 @@ end
 
 function FullPool:Touch(instance: Instance, timeBoost: number?): boolean
 	if self._isDestroyed then
-		Debugger:Log("error", "Return", "Pool is destroyed.")
+		Debugger:Log("error", "Touch", "Pool is destroyed.")
 		return
 	end
 	if self._isDestroyed or self._isReadOnly then 
 		return false 
 	end
+	self._lock:lock()
 	local metadata = self._activeInstances[instance]
 	if not (metadata and metadata.originalTTL) then
+		self._lock:unlock()
 		return false
 	end
 	if metadata.heapNode then
 		self._leaseHeap:delete(metadata.heapNode)
+		metadata.heapNode = nil
 	end
 	metadata.leaseExpiry = os.clock() + metadata.originalTTL + (timeBoost or 0)
 	metadata.heapNode = self._leaseHeap:insert(metadata.leaseExpiry, instance)
+	self._lock:unlock()
 	return true
 end
 
 function FullPool:LeaseRemaining(instance: Instance): number?
-	if self._isDestroyed or not self._activeInstances[instance] then
-		return nil
-	end
+	self._lock:lock()
 	local metadata = self._activeInstances[instance]
+	local remaining = nil
 	if metadata and metadata.leaseExpiry then
-		return math.max(0, metadata.leaseExpiry - os.clock())
+		remaining = math.max(0, metadata.leaseExpiry - os.clock())
 	end
-	return nil
+	self._lock:unlock()
+	return remaining
 end
 
 function FullPool:Pin(instance: Instance): boolean
 	if self._isDestroyed then
-		Debugger:Log("error", "Return", "Pool is destroyed.")
-		return
+		Debugger:Log("error", "Pin", "Pool is destroyed.")
+		return false
 	end
 	if self._isReadOnly then
 		Debugger:Log("error", "Pin", "Pool is in read-only mode; operation ignored.")
 	end
+	self._lock:lock()
 	local metadata = self._activeInstances[instance]
 	if not metadata or metadata.isPinned then
+		self._lock:unlock()
 		return false
 	end
 	if metadata.heapNode then
@@ -765,6 +779,7 @@ function FullPool:Pin(instance: Instance): boolean
 	end
 	metadata.isPinned = true
 	self._stats.pinnedCount += 1
+	self._lock:unlock()
 	return true
 end
 
@@ -776,8 +791,10 @@ function FullPool:Unpin(instance: Instance): boolean
 	if self._isReadOnly then
 		Debugger:Log("error", "Unpin", "Pool is in read-only mode; operation ignored.")
 	end
+	self._lock:lock()
 	local metadata = self._activeInstances[instance]
 	if not metadata or not metadata.isPinned then
+		self._lock:unlock()
 		return false
 	end
 	metadata.isPinned = false
@@ -785,6 +802,7 @@ function FullPool:Unpin(instance: Instance): boolean
 	if metadata.leaseExpiry then
 		metadata.heapNode = self._leaseHeap:insert(metadata.leaseExpiry, instance)
 	end
+	self._lock:unlock()
 	return true
 end
 
@@ -792,10 +810,12 @@ function FullPool:GetStats(): TypeDef.PoolStats
 	if self._isDestroyed then 
 		Debugger:Log("error", "GetStats", "Pool is destroyed.") 
 	end
+	self._lock:lock()
 	local totalGets = self._stats.gets
 	local totalHits = self._stats.hits
 	local idleCount = #self._idleInstances
 	local activeCount = _getActiveCount(self._activeInstances)
+	self._lock:unlock()
 	return {
 		name = self._name,
 		instanceType = self._instanceType,
@@ -823,39 +843,46 @@ function FullPool:PeekAllActive(): {Instance}
 		Debugger:Log("warn", "Shrink", "Pool is destroyed.") 
 		return {}
 	end
+	self._lock:lock()
 	local active = {}
 	for instance, _ in pairs(self._activeInstances) do
 		table.insert(active, instance)
 	end
+	self._lock:unlock()
 	return active
 end
 
 function FullPool:PeekAllPooled(): {Instance}
-	if self._isDestroyed then 
-		Debugger:Log("warn", "Shrink", "Pool is destroyed.")
+	if self._isDestroyed then
+		Debugger:Log("warn", "PeekAllPooled", "Pool is destroyed.")
 		return {}
 	end
+	self._lock:lock()
 	local pooled = {}
 	for _, inst in ipairs(self._idleInstances) do
 		table.insert(pooled, inst)
 	end
+	self._lock:unlock()
 	return pooled
 end
 
 function FullPool:Shrink(targetSize: number?)
-	if self._isDestroyed then 
-		Debugger:Log("error", "Shrink", "Pool is destroyed.") 
+	if self._isDestroyed then
+		Debugger:Log("error", "Shrink", "Pool is destroyed.")
 	end
 	targetSize = targetSize or self._initialSize
 	if typeof(targetSize) ~= "number" then
 		Debugger:Log("error", "Shrink", "targetSize must be a number")
 	end
+	local toDestroy = {}
+	self._lock:lock()
 	while #self._idleInstances > targetSize do
-		local instanceToDestroy = table.remove(self._idleInstances)
-		if instanceToDestroy then
-			self:_destroyInstance(instanceToDestroy, "Shrink")
-		else
-			break
+		table.insert(toDestroy, table.remove(self._idleInstances))
+	end
+	self._lock:unlock()
+	for _, inst in ipairs(toDestroy) do
+		if inst then
+			self:_destroyInstance(inst, "Shrink")
 		end
 	end
 end
@@ -964,14 +991,14 @@ end
 
 function FullPool.FromSnapshot(snapshotString: string): TypeDef.FullPool?
 	local success, data = pcall(HttpService.JSONDecode, HttpService, snapshotString)
-	if not success or typeof(data) ~= "table" then
+	if not success or typeof(data) ~= "table" then -- ss-ignore
 		Debugger:Log("error", "FromSnapshot", ("Invalid or corrupt snapshot string: %s")
-			:format(tostring(data)))
+			:format(tostring(data))) -- ss-ignore
 		return nil
 	end
 	local templateInstance: Instance?
-	if data.templateData then
-		local templateSuccess, deserializedTemplate = pcall(Serializer.DeserializeInstance, data.templateData)
+	if data.templateData then -- ss-ignore
+		local templateSuccess, deserializedTemplate = pcall(Serializer.DeserializeInstance, data.templateData) -- ss-ignore
 		if templateSuccess and deserializedTemplate then
 			templateInstance = deserializedTemplate
 		else
@@ -980,12 +1007,12 @@ function FullPool.FromSnapshot(snapshotString: string): TypeDef.FullPool?
 		end
 	end
 	local config: TypeDef.PoolConfig = {
-		maxSize = data.maxSize,
+		maxSize = data.maxSize, -- ss-ignore
 		initialSize = 0,
-		instanceType = templateInstance and templateInstance.ClassName or data.instanceType,
+		instanceType = templateInstance and templateInstance.ClassName or data.instanceType, -- ss-ignore
 		templateInstance = templateInstance,
-		getsPerSecond = data.getsPerSecond,
-		autoShrinkDelay = data.autoShrinkDelay,
+		getsPerSecond = data.getsPerSecond, -- ss-ignore
+		autoShrinkDelay = data.autoShrinkDelay, -- ss-ignore
 	}
 	if not config.instanceType then
 		Debugger:Log("error", "FromSnapshot", "Could not determine instanceType from snapshot data or template.")
@@ -998,18 +1025,26 @@ function FullPool.FromSnapshot(snapshotString: string): TypeDef.FullPool?
 		Debugger:Log("error", "FromSnapshot", "Failed to create new pool instance during restoration.")
 		return nil
 	end
-	if data.isFullState and data.serializedInstances then
+	if data.isFullState and data.serializedInstances then -- ss-ignore
 		newPool:Pause()
 		local restoredCount = 0
-		for _, instanceData in ipairs(data.serializedInstances) do
+		for _, instanceData in ipairs(data.serializedInstances) do -- ss-ignore
 			if _getActiveCount(newPool._activeInstances) + #newPool._idleInstances >= newPool._maxSize then
 				Debugger:Log("warn", "FromSnapshot", "Reached maxSize during instance restoration. Skipping remaining instances.")
 				break
 			end
 			local instanceSuccess, instance = pcall(Serializer.DeserializeInstance, instanceData)
 			if instanceSuccess and instance then
-				table.insert(newPool._idleInstances, instance)
-				restoredCount += 1
+				instance.Parent = nil
+				if instance.ClassName ~= newPool._instanceType then
+					Debugger:Log("warn", "FromSnapshot",
+						("Skipping mismatched instance type (%s) expected (%s).")
+							:format(tostring(instance.ClassName), tostring(newPool._instanceType)))
+					pcall(function() instance:Destroy() end)
+				else
+					table.insert(newPool._idleInstances, instance)
+					restoredCount += 1
+				end
 			else
 				Debugger:Log("warn", "FromSnapshot", ("Failed to deserialize an instance from data: %s")
 					:format(tostring(instance)))

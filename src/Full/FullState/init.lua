@@ -8,7 +8,7 @@
 	
 	Read documentary in FullState.Documentary
 ]]
-local Version = "1.1.0 (STABLE)"
+local Version = "1.1.2 (STABLE)"
 -- Dependencies
 local TypeDef = require(script.TypeDef)
 local HttpService = game:GetService("HttpService")
@@ -56,6 +56,16 @@ local function deepFreeze(tbl: any): any
 		end
 	end
 	return frozen
+end
+
+local function _safeStateHash(self, state): string
+	local ok, json = pcall(HttpService.JSONEncode, HttpService, state)
+	if ok and type(json) == "string" then
+		return xxHash.hash32Hex(json)
+	end
+	self._hashFallbackCounter = (self._hashFallbackCounter or 0) + 1
+	Debugger:Log("warn", "StateHash", "State not JSON encodable; using fallback hash.")
+	return xxHash.hash32Hex(HttpService:GenerateGUID(false)..":"..tostring(self._hashFallbackCounter))
 end
 
 local function shallowEqual(a: any, b: any): boolean
@@ -194,7 +204,7 @@ function FullState.Create(StateName: string, initialState: any, reducer: TypeDef
 	self._reducer = reducer
 	self._middleware = {}
 	self._selectors = {}
-	self._stateHash = xxHash.hash32Hex(HttpService:JSONEncode(self._state))
+	self._stateHash = _safeStateHash(self, self._state)
 	-- Concurrency & State
 	self._mutex = Mutex.new()
 	self._destroyed = false
@@ -202,14 +212,19 @@ function FullState.Create(StateName: string, initialState: any, reducer: TypeDef
 	self._eventQueue = {}
 	-- Time travel debugging
 	self._history = BPlusTree.new(5)
-	self._historySize = 1
-	self._historyIndex = 1
 	self._maxHistorySize = 50
 	local compressedInitial = _compressState(initialState)
 	if compressedInitial then
 		self._history:Insert(1, compressedInitial)
+		self._historySize = 1
+		self._historyIndex = 1
+		self._historyEnabled = true
 	else
-		Debugger:Log("warn", "Create", "Failed to compress initial state for history.")
+		-- Robust fallback: disable time travel if we can't serialize the state
+		Debugger:Log("warn", "Create", "Failed to compress initial state for history. Time-travel disabled.")
+		self._historySize = 0
+		self._historyIndex = 0
+		self._historyEnabled = false
 	end
 	-- Action tracking & Auditing
 	self._actionHistory = {}
@@ -228,7 +243,7 @@ function FullState.Create(StateName: string, initialState: any, reducer: TypeDef
 	self._metrics = {
 		dispatchCount = 0,
 		lastDispatchTime = 0,
-		historySize = 1,
+		historySize = self._historySize,
 		listenerCount = 0,
 		middlewareCount = 0,
 		selectorCount = 0
@@ -380,7 +395,9 @@ function FullState:Dispatch(action: TypeDef.Action)
 	end
 	if self._dedupeLog then
 		local isDuplicate = self._dedupeLog:CheckAndAdd(action)
-		return
+		if isDuplicate then
+			return
+		end
 	end
 	self:_acquireLock()
 	local success, result = pcall(function()
@@ -425,7 +442,7 @@ function FullState:Dispatch(action: TypeDef.Action)
 		end
 		self:_recordAction(action, os.clock() - startTime)
 		self:_recordStateHistory(self._state)
-		self._stateHash = xxHash.hash32Hex(HttpService:JSONEncode(self._state))
+		self._stateHash = _safeStateHash(self, self._state)
 		if self._batchDepth > 0 then
 			self._pendingNotifications = true
 		else
@@ -560,7 +577,9 @@ function FullState:Undo()
 	end
 	self:_acquireLock()
 	local success, result = pcall(function()
-		if self._historyIndex > 1 then
+		if not self._historyEnabled then return end
+		local minKey = select(1, self._history:GetMin())
+		if minKey and self._historyIndex > minKey then
 			self._historyIndex -= 1
 			local oldState = deepCopy(self._state)
 			local compressedState = self._history:Search(self._historyIndex)
@@ -569,7 +588,7 @@ function FullState:Undo()
 				return
 			end
 			self._state = _decompressState(compressedState)
-			self._stateHash = xxHash.hash32Hex(HttpService:JSONEncode(self._state))
+			self._stateHash = _safeStateHash(self, self._state)
 			self:_queueEvent(self._changedSignal, self._state, oldState, {type = "@@UNDO"}, self._stateHash)
 			
 		end
@@ -584,6 +603,7 @@ function FullState:Undo()
 end
 
 function FullState:Redo()
+	if not self._historyEnabled then return end
 	if self._destroyed then
 		Debugger:Log("error", "Redo", "Attempt to use a destroyed state instance.")
 		return
@@ -604,7 +624,7 @@ function FullState:Redo()
 				return
 			end
 			self._state = _decompressState(compressedState)
-			self._stateHash = xxHash.hash32Hex(HttpService:JSONEncode(self._state))
+			self._stateHash = _safeStateHash(self, self._state)
 			self:_queueEvent(self._changedSignal, self._state, oldState, {type = "@@REDO"}, self._stateHash)
 			
 		end
@@ -648,6 +668,10 @@ function FullState:Restore(snapshot: StateSnapshot)
 	self:_acquireLock()
 	local success, result = pcall(function()
 		local oldState = deepCopy(self._state)
+		if type(snapshot) ~= "table" or snapshot.state == nil then
+			Debugger:Log("error", "Restore", "Invalid snapshot (missing state).")
+			return
+		end
 		self._state = deepCopy(snapshot.state)
 		self._history = BPlusTree.new(5)
 		if snapshot.history and type(snapshot.history) == "table" then
@@ -658,8 +682,21 @@ function FullState:Restore(snapshot: StateSnapshot)
 		else
 			self._historySize = 0
 		end
-		self._historyIndex = snapshot.historyIndex
-		self._actionAuditLog = deepCopy(snapshot.actionAuditLog)
+		local minKey = select(1, self._history:GetMin()) or 0
+		local maxKey = select(1, self._history:GetMax()) or 0
+		self._historySize = (snapshot.history and type(snapshot.history) == "table") and #snapshot.history or 0
+		self._historyEnabled = (maxKey > 0)
+		local idx = tonumber(snapshot.historyIndex)
+		idx = idx and math.floor(idx) or maxKey
+		if maxKey == 0 then
+			self._historyIndex = 0
+		else
+			if idx < minKey then idx = minKey end
+			if idx > maxKey then idx = maxKey end
+			self._historyIndex = idx
+		end
+		self._metrics.historySize = self._historySize
+		self._actionAuditLog = deepCopy(snapshot.actionAuditLog) or {}
 		if snapshot.lastAuditRoot and #self._actionAuditLog > 0 then
 			self._lastAuditTree = MerkleTree.new(self._actionAuditLog)
 			if self._lastAuditTree:getRoot() ~= snapshot.lastAuditRoot then
@@ -668,7 +705,7 @@ function FullState:Restore(snapshot: StateSnapshot)
 		else
 			self._lastAuditTree = nil
 		end
-		self._stateHash = xxHash.hash32Hex(HttpService:JSONEncode(self._state))
+		self._stateHash = _safeStateHash(self, self._state)
 		
 		self:_queueEvent(self._changedSignal, self._state, oldState, {type="@@RESTORE"}, self._stateHash)
 	end)
@@ -836,17 +873,37 @@ function FullState:Transaction(transactionFn: (txStore: FullState) -> any): (boo
 	end
 	local journaledActions = {}
 	local transactionState = deepCopy(self._state)
+	local oldStateForNotify = deepCopy(self._state)
+	local parent = self
+	local reducer = self._reducer
 	local txStore = {}
 	function txStore:GetState()
 		return transactionState
+	end
+	function txStore:DidChange()
+		return txStore:GetStateHash() ~= _safeStateHash(parent, oldStateForNotify)
+	end
+	function txStore:GetConfig()
+		return {
+			enableTimeTravel = parent._historyEnabled,
+			maxHistory = parent._maxHistorySize,
+			readOnly = parent._readOnly,
+		}
+	end
+	function txStore:GetStateHash()
+		local ok, json = pcall(HttpService.JSONEncode, HttpService, transactionState)
+		if ok and type(json) == "string" then
+			return xxHash.hash32Hex(json)
+		end
+		return "0"
 	end
 	function txStore:Dispatch(action: TypeDef.Action)
 		if type(action) ~= "table" or not action.type then
 			Debugger:Log("error", "Dispatch (tx)", "Action must be a table with a 'type' field")
 			return
 		end
-		if self._reducer then
-			transactionState = self._reducer(transactionState, action)
+		if reducer then
+			transactionState = reducer(transactionState, action)
 		end
 		table.insert(journaledActions, action)
 	end
@@ -854,25 +911,29 @@ function FullState:Transaction(transactionFn: (txStore: FullState) -> any): (boo
 		local equality = equalityFn or shallowEqual
 		local lastValue
 		return function(): any
-			if self._destroyed then return end
-			local currentResult = selectorFn(transactionState) 
-			if lastValue and equality(lastValue, currentResult) then
+			if parent._destroyed then return end
+			local currentResult = selectorFn(transactionState)
+			if lastValue ~= nil and equality(lastValue, currentResult) then
 				return lastValue
 			end
 			lastValue = currentResult
 			return currentResult
 		end
 	end
-	setmetatable(txStore, { __index = self })
+	setmetatable(txStore, {
+		__index = function(_, k)
+			error(("Transaction: '%s' is not available on txStore (blocked to avoid deadlocks).")
+				:format(tostring(k)))
+		end
+	})
 	self:_acquireLock()
 	local startTime = os.clock()
-	local oldStateForNotify = deepCopy(self._state)
 	local success, results = pcall(transactionFn, txStore)
 	if success then
 		local duration = os.clock() - startTime
 		self._state = transactionState 
 		 
-		self._stateHash = xxHash.hash32Hex(HttpService:JSONEncode(self._state))
+		self._stateHash = _safeStateHash(self, self._state)
 		local txAction = {type="@@TRANSACTION", payload = journaledActions}
 		self:_recordAction(txAction, duration)
 		self:_recordStateHistory(self._state)
@@ -922,7 +983,7 @@ function FullState:Reset(...)
 		self._actionHistory = {}
 		self._actionAuditLog = {}
 		self._lastAuditTree = nil
-		self._stateHash = xxHash.hash32Hex(HttpService:JSONEncode(self._state))
+		self._stateHash = _safeStateHash(self, self._state)
 		self:_queueEvent(self._changedSignal, self._state, oldState, {type = "@@RESET"}, self._stateHash)
 	end)
 	self:_releaseLock()
@@ -1014,6 +1075,9 @@ function FullState:WaitForChange(selectorFn: Selector?, timeout: number?): (any?
 end
 
 function FullState:_recordStateHistory(state: any)
+	if not self._historyEnabled then
+		return
+	end
 	local maxKey, _ = self._history:GetMax()
 	if maxKey and maxKey > self._historyIndex then
 		for k = self._historyIndex + 1, maxKey do
@@ -1167,4 +1231,5 @@ function FullState.middleware.validator(schema: {[string]: string})
 	end
 end
 FullState.Version = Version; FullState.Registry = States
+------------------------------------------------------------------------------------------------------------
 return Debugger:Profile(FullState, "Create", script) :: TypeDef.Static

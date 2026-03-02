@@ -110,13 +110,16 @@ function Signal:Wait(): ...any
 	local syncArgs = nil
 	self:Once(function(...)
 		if yielded then
-			task_spawn(waitingCoroutine, ...)
+			local packed = table.pack(...)
+			task_defer(function()
+				coroutine_resume(waitingCoroutine, table.unpack(packed, 1, packed.n))
+			end)
 		else
-			syncArgs = {...}
+			syncArgs = table.pack(...)
 		end
 	end)
 	if syncArgs then
-		return unpack(syncArgs)
+		return table.unpack(syncArgs, 1, syncArgs.n)
 	end
 	yielded = true
 	return coroutine_yield()

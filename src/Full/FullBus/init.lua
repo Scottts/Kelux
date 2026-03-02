@@ -8,7 +8,7 @@
 	
 	Read documentary in FullBus.Documentary
 ]]
-local VERSION = "VERSION: 1.75.8 (STABLE)"
+local VERSION = "VERSION: 1.75.11 (STABLE)"
 -- Dependencies
 -- Adjust all of these positions if used elsewhere...
 local TypeDef = require(script.TypeDef)
@@ -433,6 +433,7 @@ function FullBus:Subscribe(eventName:string, callback:Callback, options:Subscrib
 		_debugLog(self, "Subscribe", ("Subscribed to '%s'(Priority:%d, Once:%s)")
 			:format(eventName,connection.Priority,tostring(connection.Once)))
 		local handle = {}
+		handle._connection = connection
 		handle.Disconnect = function()
 			self:Disconnect(connection)
 		end
@@ -802,8 +803,8 @@ function FullBus:CreateChildBus(prefix:string):FullBus
 		Debugger:Log("error", "CreateChildBus", "Prefix must be a non-empty string")
 		return
 	end
-	if not prefix:match("%.?$") then
-		prefix = prefix.."."
+	if prefix:sub(-1) ~= "." then
+		prefix = prefix .. "."
 	end
 	local ok, childBus = pcall(FullBus.Create, self._config)
 	if not ok or not childBus then
@@ -868,28 +869,34 @@ function FullBus:Request(eventName:string, timeout:number?, ...:any): (boolean, 
 	local replyEventName = "_reply."..tostring(self._replyCounter)
 	self:_releaseLock()
 	local args = {...}
-	local currentThread = coroutine.running()
-	local success, result
+	local replySignal = Signal.new()
+	local replyOk = false
+	local replyPayload = nil
+	local done = false
 	task.spawn(function()
 		local waitResults = {self:WaitFor(replyEventName, timeout)}
 		local ok = table.remove(waitResults, 1)
 		if not ok then
-			success = false
-			result = {"Request timed out"}
+			replyOk = false
+			replyPayload = table.pack("Request timed out")
 		else
 			local replyArgs = waitResults
-			success = replyArgs[1]
+			replyOk = replyArgs[1] == true
 			table.remove(replyArgs, 1)
-			result = replyArgs
+			replyPayload = table.pack(table.unpack(replyArgs))
 		end
-		task.spawn(currentThread, success, result)
+		done = true
+		replySignal:Fire()
 	end)
 	self:Publish(eventName, table.unpack(args), replyEventName)
-	local coSuccess, coResult = coroutine.yield()
-	if not coSuccess then
-		return false, table.unpack(coResult, 1, coResult.n)
+	if not done then
+		replySignal:Wait()
 	end
-	return coSuccess, table.unpack(coResult, 1, coResult.n)
+	replySignal:DisconnectAll()
+	if not replyOk then
+		return false, table.unpack(replyPayload, 1, replyPayload.n)
+	end
+	return true, table.unpack(replyPayload, 1, replyPayload.n)
 end
 
 function FullBus:Disconnect(connection:Connection)
@@ -1132,25 +1139,28 @@ function FullBus:WaitFor(eventName:string, timeout:number?): (boolean, ...any)
 	end
 	local timeoutTime = timeout or 0
 	local startTime = os.clock()
-	local waitSuccess = false
+	local firedOrTimedOut = false
 	if timeoutTime > 0 then
 		local timer = task.delay(timeoutTime, function()
 			if not fired then
-				eventSignal:Fire() 
+				firedOrTimedOut = true
+				eventSignal:Fire()
 			end
 		end)
-		eventSignal:Wait()
-		task.cancel(timer)
-		if fired then
-			waitSuccess = true
+		if not fired then
+			eventSignal:Wait()
 		end
+		task.cancel(timer)
 	else
-		eventSignal:Wait()
-		waitSuccess = true
+		if not fired then
+			eventSignal:Wait()
+		end
 	end
 	eventSignal:DisconnectAll()
-	if connection and connection.Connected then
-		connection.Disconnect()
+	if connection and connection.Disconnect then
+		pcall(function()
+			connection:Disconnect()
+		end)
 	end
 	if not fired then
 		return false
@@ -1522,8 +1532,8 @@ function FullBus:GetStats():BusStats
 	for _, intervalTree in pairs(self._intervalSubscribers) do
 		local allConnections = {}
 		local ok, data = pcall(function() return intervalTree:getAll() end)
-		if ok and type(data) == "table" then
-			allConnections = data
+		if ok and type(data) == "table" then -- ss-ignore
+			allConnections = data -- ss-ignore
 		end
 		for _, intervalData in ipairs(allConnections) do
 			if intervalData and intervalData.data and intervalData.data.Connected then
@@ -1878,85 +1888,70 @@ function FullBus:Transaction(transactionFn: (txBus: FullBus) -> any): (boolean, 
 						local capturedJournalIndex = journalIndex
 						local dummyHandle = {
 							_journalIndex = capturedJournalIndex,
-							Disconnect = function()
-								table.insert(journal, {
-									op = "__DISCONNECT_PENDING",
-									subscribeIndex = capturedJournalIndex
-								})
-							end
+							_resolved = nil,
+							_disconnectRequested = false,
 						}
+						function dummyHandle:Disconnect()
+							if self._resolved and self._resolved.Disconnect then
+								return pcall(self._resolved.Disconnect, self._resolved)
+							end
+							if not self._disconnectRequested then
+								self._disconnectRequested = true
+								table.insert(journal, {op="__DISCONNECT_PENDING",
+									subscribeIndex=capturedJournalIndex})
+							end
+						end
+						journal[journalIndex].dummyHandle = dummyHandle
 						return dummyHandle
 					end
 				end
 			else
-				local realValue = FullBus[k]
-				if type(realValue) == "function" then
-					return function(_, ...)
-						return realValue(self, ...)
-					end
-				else
-					return realValue
-				end
+				error(("Transaction: '%s' is not available on txBus (blocked to keep transaction atomic).")
+					:format(tostring(k)))
 			end
 		end
 	})
 	self:_acquireLock()
-	local txSuccess, txResults = pcall(transactionFn, txBus)
+	local txSuccess, txResults = pcall(function()
+		return table.pack(transactionFn(txBus))
+	end)
 	local applySuccess = false
 	local applyError = nil
 	if txSuccess then
 		local applyOk, applyErr = pcall(function()
-			local createdConnections = {}
 			local handlesToReturn = {}
-			for entryIndex, entry in ipairs(journal) do
+			for _, entry in ipairs(journal) do
 				if entry.op:match("^Subscribe") or entry.op == "Reply" then
 					local method = FullBus[entry.op]
-					if method then
-						local results = {method(self, table.unpack(entry.args, 1, entry.args.n))}
-						local realHandle = results[1]
-						if realHandle then
-							handlesToReturn[entry.index] = realHandle
-							local eventNameArg = entry.args[1]
-							local callbackArg = entry.args[2]
-							local actualConn = nil
-							local subs
-							if entry.op == "SubscribeByPrefix" then
-								subs = self._prefixSubscribers:Search(eventNameArg)
-							elseif entry.op == "SubscribeToAll" then
-								subs = self._allSubscribers
-							else
-								subs = self._subscribers[eventNameArg]
-							end
-							if subs then
-								for i = #subs, 1, -1 do
-									if subs[i].Callback == callbackArg and subs[i].Connected then
-										actualConn = subs[i]
-										break
-									end
-								end
-							end
-							if actualConn then
-								createdConnections[entry.index] = actualConn
-							else
-								Debugger:Log("warn", "TransactionApply", ("Could not find connection object after subscribing for journal index %d")
-									:format(entry.index))
-							end
-						end
-					else
+					if not method then
 						error(("Transactional method '%s' not found on FullBus.")
 							:format(entry.op))
+					end
+					local results = {method(self, table.unpack(entry.args, 1, entry.args.n))}
+					local realHandle = results[1]
+					if realHandle then
+						handlesToReturn[entry.index] = realHandle
+						if entry.dummyHandle then
+							entry.dummyHandle._resolved = realHandle
+						end
 					end
 				end
 			end
 			for entryIndex, entry in ipairs(journal) do
 				local method = FullBus[entry.op]
 				if entry.op == "__DISCONNECT_PENDING" then
-					local targetConn = createdConnections[entry.subscribeIndex]
-					if targetConn and targetConn.Connected then
-						_disconnectInternal(targetConn)
+					local realHandle = handlesToReturn[entry.subscribeIndex]
+					if realHandle and realHandle.Disconnect then
+						local conn = realHandle._connection
+						if conn then
+							_disconnectInternal(conn)
+						elseif realHandle.Disconnect then
+							pcall(function() realHandle:Disconnect() end)
+						end
 					else
-						Debugger:Log("warn", "TransactionApply", ("Could not disconnect pending connection for journal index %d - Connection invalid or already disconnected")
-							:format(entry.subscribeIndex or -1))
+						Debugger:Log("warn", "TransactionApply",
+							("Could not disconnect pending subscription for journal index %d (no real handle).")
+								:format(entry.subscribeIndex or -1))
 					end
 				elseif not (entry.op:match("^Subscribe") or entry.op == "Reply") and method then
 					method(self, table.unpack(entry.args, 1, entry.args.n))
@@ -1991,12 +1986,12 @@ function FullBus:Transaction(transactionFn: (txBus: FullBus) -> any): (boolean, 
 	if txSuccess and applySuccess then
 		if type(txResults) == "table" and txResults.n ~= nil then
 			return true, table.unpack(txResults, 1, txResults.n)
-		else
-			return true, txResults
 		end
+		return true, txResults
 	else
 		return false, applyError or txResults
 	end
 end
 FullBus.Version = VERSION; FullBus.Registry = Buses
+------------------------------------------------------------------------------------------------------------
 return Debugger:Profile(FullBus, "Create", script) :: TypeDef.Static
