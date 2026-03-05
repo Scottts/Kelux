@@ -49,7 +49,6 @@ local DefaultConfig = {
 	EnableDeduplication = false,
 	DeduplicationCacheSize = 100,
 	DeduplicationCmsEpsilon = 0.01,
-	DeduplicationCmsDelta = 0.001,
 }
 
 -- Helper functions ----------------------------------------------------------------------------------------
@@ -257,8 +256,6 @@ function FullBus.Create(BusName:string, Opts:CreateOpts?):FullBus
 			DefaultConfig.DeduplicationCacheSize,
 		DeduplicationCmsEpsilon = opts.DeduplicationCmsEpsilon or
 			DefaultConfig.DeduplicationCmsEpsilon,
-		DeduplicationCmsDelta = opts.DeduplicationCmsDelta or
-			DefaultConfig.DeduplicationCmsDelta,
 	}
 	local self = setmetatable({
 		_name = BusName,

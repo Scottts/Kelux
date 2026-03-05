@@ -928,11 +928,12 @@ function FullState:Transaction(transactionFn: (txStore: FullState) -> any): (boo
 	})
 	self:_acquireLock()
 	local startTime = os.clock()
-	local success, results = pcall(transactionFn, txStore)
+	local packed = table.pack(pcall(transactionFn, txStore))
+	local success = packed[1]
+	local results = packed[2]
 	if success then
 		local duration = os.clock() - startTime
-		self._state = transactionState 
-		 
+		self._state = transactionState
 		self._stateHash = _safeStateHash(self, self._state)
 		local txAction = {type="@@TRANSACTION", payload = journaledActions}
 		self:_recordAction(txAction, duration)
@@ -945,10 +946,14 @@ function FullState:Transaction(transactionFn: (txStore: FullState) -> any): (boo
 	end
 	self:_releaseLock()
 	if success then
-		if type(results) == "table" and results.n ~= nil then
+	local resultsCount = packed.n - 1
+	if resultsCount == 1 and type(results) == "table" and results.n ~= nil then
 			return true, table.unpack(results, 1, results.n)
 		end
-		return true, results
+		if resultsCount > 0 then
+			return true, table.unpack(packed, 2, packed.n)
+		end
+		return true
 	else
 		return false, results
 	end

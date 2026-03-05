@@ -26,7 +26,6 @@ export type SubscribeOptions = {
 	Priority: number?,
 	Once: boolean?,
 	Filter: FilterCallback?,
-	Async: boolean?,
 	Group: SubscriptionGroup?,
 }
 export type SubscriberInfo = {
@@ -49,7 +48,6 @@ export type CreateOpts = {
 	EnableDeduplication: boolean?,
 	DeduplicationCacheSize: number?,
 	DeduplicationCmsEpsilon: number?,
-	DeduplicationCmsDelta: number?,
 }
 export type Middleware = (eventName: string, ...any) -> (...any)
 export type BusStatsLive = {

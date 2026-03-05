@@ -338,6 +338,9 @@
 	                local stats = myPool:GetStats()
 	                print("Hit Rate:", stats.hitRate)
 	                ----------------------------------------------------------------------------
+
+                    Note (v1.72.9): memoryUsage, memoryBudget, and memoryUsagePercent are placeholders
+                    and currently return 0 in this build.
 	                
 	            pool:PeekAllActive() -> {Instance}
 	                Returns a shallow copy of all currently active (in-use) instances

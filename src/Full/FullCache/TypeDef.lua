@@ -3,7 +3,19 @@ export type FIFOState = {queue: {string}}
 export type LRUState = {head: string?, tail: string?, nodes: {[string]: any}}
 export type LFUState = {minFreq: number, freqMap: {[number]: {string}}}
 export type RRState = {queue: {string}}
-export type PolicyState = FIFOState | LRUState | LFUState | RRState
+export type FIFOState = {queue: {string}}
+export type LRUState = {head: string?, tail: string?, nodes: {[string]: any}}
+export type LFUState = {minFreq: number, freqMap: {[number]: {string}}}
+export type RRState = {queue: {string}}
+export type ARCState = {
+	T1: {string},
+	T2: {string},
+	B1: {string},
+	B2: {string},
+	p: number,
+	cacheSize: number,
+}
+export type PolicyState = FIFOState | LRUState | LFUState | RRState | ARCState
 export type CacheKey = string | table | userdata
 export type NormalizedKey = string | userdata
 export type CacheEntry<T> = {
@@ -43,15 +55,14 @@ export type SnapshotData<T> = {
 	timestamp: number,
 }
 export type CreateOpts = {
-	Mode: string,
-	Policy: string, 
-	MemoryBudget: number, 
-	MaxSerializedSize: number, 
-	FormatType: string,
+	Mode: string?,
+	Policy: (string | {[any]: any})?,
+	MemoryBudget: number?,
+	MaxSerializedSize: number?,
 	ReadOnly: boolean?,
-	EstimateSizeFunction: ((any) -> number)?, 
-	UseCompression:string?,
-	TTLCapacity: number,
+	EstimateSizeFunction: ((any) -> number)?,
+	UseCompression: string?,
+	TTLCapacity: number?,
 	TTLFilter: string?,
 	TTLMode: string?,
 	TTLUseClock: boolean?,
@@ -727,12 +738,14 @@ export type FullCache<T> = {
 	),
 }
 export type Static = {
+	Version: string,
+	Registry: {[string]: FullCache<any>},
 	Create: typeof(
 		--[[
-			Creates a new named cache or returns an existing one if already created. Supports optional max
-			object count, TTL interval in seconds, and cache options (weak/strong mode and eviction policy).
-			
-			<code>local cache = FullCache.Create("MyCache", 100, 5, {Mode = "strong", Policy = "LRU"})
+			Creates a new named cache or returns an existing one if already created.
+			Supports optional max object count and cache options (weak/strong mode and eviction policy).
+
+			<code>local cache = FullCache.Create("MyCache", 100, {Mode = "strong", Policy = "LRU"})
 		]]
 		function <T>(CacheName:string, MaxObjects:number?, Opts:CreateOpts?):FullCache<T> end
 	),
@@ -750,6 +763,7 @@ export type Master = {
 	LRUState: LRUState,
 	LFUState: LFUState,
 	RRState: RRState,
+	ARCState: ARCState,
 	PolicyState: PolicyState,
 	CacheEntry: CacheEntry,
 	EvictionInfo: EvictionInfo,

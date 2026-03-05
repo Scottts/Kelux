@@ -59,7 +59,6 @@
             * 'EnableDeduplication' (boolean): Use Bloom Filter/xxHash to drop identical consecutive events. Default: 'false'.
             * 'DeduplicationCacheSize' (number): Size of the Bloom Filter. Default: '100'.
             * 'DeduplicationCmsEpsilon' (number): Bloom Filter error rate epsilon. Default: '0.01'.
-            * 'DeduplicationCmsDelta' (number): Bloom Filter error rate delta. Default: '0.001'.
 
         Example:
             ----------------------------------------------------------------------------
