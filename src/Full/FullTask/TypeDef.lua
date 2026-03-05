@@ -1,6 +1,9 @@
 -- Annotations ---------------------------------------------------------------------------------------------
 type Signal = {
 	new: () -> Signal,
+	Connect: (self: Signal, handler: (...any) -> ()) -> number,
+	Once: (self: Signal, handler: (...any) -> ()) -> number,
+	Disconnect: (self: Signal, id: number) -> (),
 	Wait: (self: Signal) -> ...any,
 	Fire: (self: Signal, ...any) -> (),
 	DisconnectAll: (self: Signal) -> ()
@@ -19,6 +22,77 @@ export type Priority = {
 	HIGH: number,
 	CRITICAL: number
 }
+export type TransactionContext = {
+	Submit: typeof(
+		--[[
+			Stages a task submission inside the transaction.
+			This does NOT submit immediately, it’s committed after <strong>transactionFn</strong> returns.
+
+			Returns true (staged successfully).
+		]]
+		function(self: TransactionContext, taskFn: (ctx: TaskExecutionContext) -> ...any, options: TaskOptions?): true end
+	),
+	CancelTask: typeof(
+		--[[
+			Stages a cancel request inside the transaction.
+			This does NOT cancel immediately, it’s committed after <strong>transactionFn</strong> returns.
+
+			Returns true (staged successfully).
+		]]
+		function(self: TransactionContext, taskId: string, force: boolean?): true end
+	),
+	SetPriority: typeof(
+		--[[
+			Stages a priority change inside the transaction.
+			This does NOT apply immediately, it’s committed after <strong>transactionFn</strong> returns.
+
+			Returns true (staged successfully).
+		]]
+		function(self: TransactionContext, id: string, newPriority: number): true end
+	),
+	AddDependency: typeof(
+		--[[
+			Stages a dependency edge inside the transaction:
+			<strong>taskId</strong> will wait on <strong>prerequisiteTaskId</strong>.
+
+			This does NOT apply immediately, it’s committed after <strong>transactionFn</strong> returns.
+			Returns true (staged successfully).
+		]]
+		function(self: TransactionContext, taskId: string, prerequisiteTaskId: string): true end
+	),
+	GetTask: typeof(
+		--[[
+			Reads a task by ID from the manager while the transaction lock is held.
+			Returns the Task object or nil if it doesn't exist.
+		]]
+		function(self: TransactionContext, id: string): Task? end
+	),
+	GetTasks: typeof(
+		--[[
+			Reads tasks from the manager while the transaction lock is held.
+			If <strong>status</strong> is provided, returns only tasks with that exact state.
+			Returns a dictionary keyed by taskId.
+		]]
+		function(self: TransactionContext, status: TaskStateValue?): {[string]: Task} end
+	),
+	GetTaskDependencies: typeof(
+		--[[
+			Returns an array of dependency task IDs for the given task.
+			Returns an empty array if the task doesn't exist or has no dependencies.
+		]]
+		function(self: TransactionContext, id: string): {string} end
+	),
+}
+export type TaskStateValue = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "WAITING"
+export type ManagerOptions = {
+	name: string?,
+	maxConcurrency: number?,
+	taskRateLimit: number?,
+	maxLoadPerHeartbeat: number?,
+	autoProcessInterval: number?,
+	heapType: ("PairingHeap" | "FibonacciHeap")?,
+	resourceLimits: {[string]: number}?,
+}
 export type TaskOptions = {
 	id: string?, -- A custom unique identifier for the task
 	name: string?, -- A human-readable name for the task
@@ -26,8 +100,8 @@ export type TaskOptions = {
 	maxRetries: number?, -- The maximum number of times to retry the task if it fails[Default: 0]
 	timeout: number?, -- A timeout in seconds. If the task runs longer, it will be cancelled
 	resources: {[string]: number}?, -- A table specifying the resources and amounts this task requires (e.g., { "HTTP_REQUESTS": 1 })
-	dependencies: {string}?, -- A list of task IDs that must be completed before this task can run
-	scheduledFor: number?, -- A future timestamp (from tick()) when the task should be scheduled to run
+	dependencies: ({string} | {[string]: true} | {[any]: string})?, -- array or map form (normalized internally)
+	scheduledFor: number?, -- A future Unix timestamp (from os.time()) when the task should be scheduled to run
 	cronExpression: string?, -- A cron expression for scheduling recurring tasks
 	recurringCount: number?, -- The number of times a recurring task should run (nil for indefinitely)
 	data: {[any]: any}?, -- A table for arbitrary user data associated with the task
@@ -46,7 +120,7 @@ export type Task = {
 	scheduledFor: number?,-- The timestamp when this task is scheduled to run
 	cronExpression: string?,-- The cron expression for recurrence
 	recurringCount: number?,-- The remaining number of times this recurring task will run
-	state: string,-- The current state of the task (e.g., "PENDING", "RUNNING")
+	state: TaskStateValue,-- The current state of the task (e.g., "PENDING", "RUNNING")
 	cancellationRequested: boolean,-- Flag indicating if cancellation has been requested
 	data: {[any]: any},-- Arbitrary user data
 	thread: thread?,-- The coroutine executing the task
@@ -112,6 +186,7 @@ export type FullTaskSnapshot = {
 		data: {[any]: any},
 		submitTime: number,
 		contentHash: string,
+		isRecurring: boolean,
 	}},
 }
 export type FullTask<T> = {
@@ -141,11 +216,11 @@ export type FullTask<T> = {
 	),
 	UpdateTaskPriority: typeof(
 		--[[
-			Updates the priority of a pending task. 
-
-			<code>taskManager:UpdateTaskPriority(myTask.id, FullTask.Priority.CRITICAL)
+			Updates the priority of a pending task.
+			Returns false if task doesn't exist.
+			May return true in some internal paths; otherwise returns nil.
 		]]
-		function(self: FullTask<T>, taskId: string, newPriority: number) end
+		function(self: FullTask<T>, taskId: string, newPriority: number): boolean? end
 	),
 	CancelTask: typeof(
 		--[[
@@ -156,7 +231,7 @@ export type FullTask<T> = {
 			<code>taskManager:CancelTask(myTask.id)
 			taskManager:CancelTask(runningTaskId, true) -- Force cancel
 		]]
-		function(self: FullTask<T>, taskId: string, force: boolean?) end
+		function(self: FullTask<T>, taskId: string, force: boolean?): boolean? end
 	),
 	Destroy: typeof(
 		--[[
@@ -175,13 +250,13 @@ export type FullTask<T> = {
 			
 			<code>taskManager:BulkCancel({task1.id, task2.id}, true) -- Force cancel
 		]]
-		function(self: FullTask<T>, taskIds: {string}, force: boolean?) end
+		function(self: FullTask<T>, taskIds: {string}, force: boolean?): number end
 	),
 	CancelByPattern: typeof(
 		--[[
 			Cancels all tasks that match a predicate function or a glob pattern.
 			Using a function cancels if the function returns true for a task object.
-			For the string, it ancels if the task 'name' matches the glob pattern (e.g., "http:*").
+			For the string, it cancels if the task 'name' matches the glob pattern (e.g., "http:*").
 
 			<code>-- Cancel by predicate
 			taskManager:CancelByPattern(function(task)
@@ -190,26 +265,129 @@ export type FullTask<T> = {
 			-- Cancel by glob pattern
 			taskManager:CancelByPattern("user_data:*", true)
 		]]
-		function(self: FullTask<T>, patOrFn: string | ((task: Task) -> boolean), force: boolean?) end
+		function(self: FullTask<T>, patOrFn: string | ((task: Task) -> boolean), force: boolean?): number end
+	),
+	GetTask: typeof(
+		--[[
+			Returns the live Task object for the given ID, or nil if it doesn't exist.
+			Returns nil if the manager is destroyed.
+		]]
+		function(self: FullTask<T>, id: string): Task? end
+	),
+
+	GetTasks: typeof(
+		--[[
+			Returns a dictionary of Task objects keyed by taskId.
+			If <strong>status</strong> is provided, only tasks with that exact state are returned.
+			Returns nil if the manager is destroyed.
+		]]
+		function(self: FullTask<T>, status: TaskStateValue?): {[string]: Task}? end
+	),
+
+	SetPriority: typeof(
+		--[[
+			Updates a task's priority (only valid while the task is PENDING or WAITING).
+			Returns (true) on success, or (false, reason) on failure.
+		]]
+		function(self: FullTask<T>, id: string, newPriority: number): (boolean, string?) end
+	),
+
+	AbortTask: typeof(
+		--[[
+			Force-aborts a task and marks it CANCELLED.
+			If the task is RUNNING, this attempts to stop its thread and release its resources.
+			Returns (true) on success, or (false, reason) on failure.
+		]]
+		function(self: FullTask<T>, id: string): (boolean, string?) end
+	),
+
+	AddDependency: typeof(
+		--[[
+			Adds a dependency edge: <strong>taskId</strong> will wait on <strong>prerequisiteTaskId</strong>.
+			Prevents cycles and validates task state (must be PENDING/WAITING).
+			Returns (true) on success, or (false, reason) on failure.
+		]]
+		function(self: FullTask<T>, taskId: string, prerequisiteTaskId: string): (boolean, string?) end
+	),
+
+	Pause: typeof(
+		--[[
+			Pauses the scheduler (stops the main loop). Tasks won't start while paused.
+			Returns (true) on success, or (false, reason) on failure.
+	]]
+		function(self: FullTask<T>): (boolean, string?) end
+	),
+
+	Resume: typeof(
+		--[[
+			Resumes the scheduler (restarts the main loop).
+			Returns (true) on success, or (false, reason) on failure.
+		]]
+		function(self: FullTask<T>): (boolean, string?) end
+	),
+
+	GetTaskDependencies: typeof(
+		--[[
+			Returns an array of dependency task IDs for the given task.
+			Note: if the task doesn't exist, this returns an empty array (not nil).
+			Returns nil only if the manager is destroyed or an internal error occurs.
+		]]
+		function(self: FullTask<T>, id: string): {string}? end
+	),
+
+	Snapshot: typeof(
+		--[[
+			Captures a serializable snapshot of all non-finished tasks.
+			RUNNING tasks are saved as PENDING so they can be resumed safely.
+			Returns nil if the manager is destroyed or snapshotting fails.
+		]]
+		function(self: FullTask<T>): FullTaskSnapshot? end
+	),
+
+	Restore: typeof(
+		--[[
+			Restores tasks from a snapshot produced by <strong>Snapshot()</strong>.
+			<strong>functionMap</strong> must be a non-empty map of function IDs -> runnable functions.
+			Returns (true) on success, or (false, reason) on failure.
+		]]
+		function(self: FullTask<T>, snapshotData: FullTaskSnapshot, functionMap: {[string]: () -> ...any}): (boolean, string?) end
+	),
+
+	ToJSON: typeof(
+		--[[
+			Encodes <strong>Snapshot()</strong> to a JSON string via HttpService:JSONEncode.
+			Returns nil if the manager is destroyed or encoding fails.
+		]]
+		function(self: FullTask<T>): string? end
+	),
+
+	FromJSON: typeof(
+		--[[
+			Decodes a snapshot JSON string via HttpService:JSONDecode, then calls <strong>Restore</strong>.
+			<strong>functionMap</strong> must be a non-empty map of function IDs -> runnable functions.
+			Returns (true) on success, or (false, reason) on failure.
+		]]
+		function(self: FullTask<T>, jsonString: string, functionMap: {[string]: () -> ...any}): (boolean, string?) end
+	),
+
+	Transaction: typeof(
+		--[[
+			Runs a transactional batch against a lightweight tx context.
+			If the transaction function errors or any committed action fails, the transaction errors.
+			Returns all values returned by <strong>transactionFn</strong>.
+		]]
+		function(self: FullTask<T>, transactionFn: (tx: TransactionContext) -> ...any): ...any end
 	),
 }
 export type Static = {
 	TaskState: TaskState,
 	Priority: Priority,
-	Create: typeof(
-		--[[
-			Creates a new task manager instance. 
-
-			<code>local taskManager = FullTask.Create({
-				name = "MyTaskManager",
-				maxConcurrency = 20,
-				resourceLimits = {
-					["HTTP"] = 5
-				}
-			})
-		]]
-		function <T>(name: string?, maxConcurrency: number?, autoProcessInterval: number?, heapType: ("PairingHeap" | "FibonacciHeap")?, resourceLimits: {[string]: number}?): FullTask<T> end
-	),
+	Version: string,
+	Registry: {[string]: FullTask<any>},
+	Create: typeof(function <T>(
+		NameOrConfig: string | ManagerOptions?,
+		Options: ManagerOptions?
+	): FullTask<T> end),
 }
 ------------------------------------------------------------------------------------------------------------
 export type Master = {

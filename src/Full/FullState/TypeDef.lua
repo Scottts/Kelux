@@ -6,6 +6,27 @@ export type Action = {
 export type Middleware<S> = (store: FullState<S>, action: Action, next: () -> ()) -> ()
 export type Reducer<S> = (state: S, action: Action) -> S
 export type Selector<S, R> = (state: S) -> R
+export type TransactionStore<S> = {
+	-- Transaction state access
+	GetState: (self: TransactionStore<S>) -> S,
+	GetStateHash: (self: TransactionStore<S>) -> string,
+	-- Returns whether state differs from original at start of transaction
+	DidChange: (self: TransactionStore<S>) -> boolean,
+	-- Returns a small config snapshot used by tx logic
+	GetConfig: (self: TransactionStore<S>) -> {
+		enableTimeTravel: boolean,
+		maxHistory: number,
+		readOnly: boolean,
+	},
+	-- Only accepts plain Action tables inside Transaction (no thunks)
+	Dispatch: (self: TransactionStore<S>, action: Action) -> (),
+	-- Selector scoped to transactionState
+	CreateSelector: <R>(
+		self: TransactionStore<S>,
+		selectorFn: (state: S) -> R,
+		equalityFn: ((a: R, b: R) -> boolean)?
+	) -> (() -> R),
+}
 export type CreateOptions = {
 	deduplication: {
 		enabled: boolean,
@@ -21,6 +42,11 @@ export type StateSnapshot<S> = {
 	historyIndex: number,
 	actionAuditLog: {string},
 	lastAuditRoot: string?,
+}
+export type ActionRecord = {
+	action: Action,
+	timestamp: number, -- os.time()
+	executionTime: number, -- seconds (os.clock delta)
 }
 export type FullState<S> = {
 	-- Lifecycle
@@ -71,7 +97,7 @@ export type FullState<S> = {
 			print(currentState.counter)
 			</code>
 		]]
-		function(self: FullState<S>): S end
+		function(self: FullState<S>): S? end
 	),
 	GetStateHash: typeof(
 		--[[
@@ -125,58 +151,61 @@ export type FullState<S> = {
 	OnDispatch: typeof(
 		--[[
 			Connects a listener that fires <strong>before</strong> an action is processed by middleware.
-			Returns a disconnect function.
+			Returns a connectionId (number). Disconnect via <code>state:Disconnect(connectionId)</code>.
 
-			<code>local disconnect = state:OnDispatch(function(action)
+			<code>local id = state:OnDispatch(function(action)
 				print("Action Dispatched:", action.type)
 			end)
-			
-			disconnect() -- Stop listening
+
+			state:Disconnect(id) -- Stop listening
 			</code>
 		]]
-		function(self: FullState<S>, listener: (action: Action) -> ()): number end
+		function(self: FullState<S>, listener: (action: Action) -> ()): number? end
 	),
 	OnCommit: typeof(
 		--[[
 			Connects a listener that fires <strong>after</strong> the reducer has run,
 			but <strong>before</strong> the state is frozen and OnChanged listeners are notified.
-			Returns a disconnect function.
+			Returns a connectionId (number). Disconnect via <code>state:Disconnect(connectionId)</code>.
 
-			<code>local disconnect = state:OnCommit(function(newState, oldState, action)
+			<code>local id = state:OnCommit(function(newState, oldState, action)
 				print("State is about to change from", oldState.counter, "to", newState.counter)
 			end)
+
+			state:Disconnect(id) -- Stop listening
 			</code>
 		]]
-		function(self: FullState<S>, listener: (newState: S, oldState: S, action: Action) -> ()): number end
+		function(self: FullState<S>, listener: (newState: S, oldState: S, action: Action) -> ()): number? end
 	),
 	OnChanged: typeof(
 		--[[
 			Connects a listener that fires <strong>after</strong> a dispatch has successfully
 			completed and the state has changed.
-			Returns a disconnect function.
+			Returns a connectionId (number). Disconnect via <code>state:Disconnect(connectionId)</code>.
 
-			<code>local disconnect = state:OnChanged(function(newState, oldState, action)
-				print("State changed due to:", action.type)
+			<code>local id = state:OnChanged(function(newState, oldState, action, stateHash)
+				print("State changed due to:", action.type, "hash:", stateHash)
 			end)
 
-			-- To stop listening:
-			disconnect()
+			state:Disconnect(id) -- Stop listening
 			</code>
 		]]
-		function(self: FullState<S>, listener: Listener<S>): number end
+		function(self: FullState<S>, listener: Listener<S>): number? end
 	),
 	OnError: typeof(
 		--[[
 			Connects a listener that fires when an error occurs
 			inside a dispatch, transaction, or other method.
-			Returns a disconnect function.
+			Returns a connectionId (number). Disconnect via <code>state:Disconnect(connectionId)</code>.
 
-			<code>local disconnect = state:OnError(function(methodName, errorMessage)
+			<code>local id = state:OnError(function(methodName, errorMessage)
 				warn("FullState Error in", methodName, ":", errorMessage)
 			end)
+
+			state:Disconnect(id) -- Stop listening
 			</code>
 		]]
-		function(self: FullState<S>, listener: ErrorCallback): number end
+		function(self: FullState<S>, listener: ErrorCallback): number? end
 	),
 	SubscribeToPath: typeof(
 		--[[
@@ -198,10 +227,11 @@ export type FullState<S> = {
 	Disconnect: typeof(
 		--[[
 			Disconnects a listener using the connection ID number
-			returned from an 'On...' or 'SubscribeToPath' method.
+			returned from an 'On...' method.
+
+			Note: <code>SubscribeToPath</code> returns its own disconnect function.
 
 			<code>local id = state:OnChanged(myListener)
-			-- Some stuff happens...
 			state:Disconnect(id)
 			</code>
 		]]
@@ -313,7 +343,7 @@ export type FullState<S> = {
 			-- 'snap' can now be saved to a DataStore
 			</code>
 		]]
-		function(self: FullState<S>): StateSnapshot<S> end
+		function(self: FullState<S>): StateSnapshot<S>? end
 	),
 	Restore: typeof(
 		--[[
@@ -375,11 +405,11 @@ export type FullState<S> = {
 
 			<code>local actions = state:GetActionHistory()
 			for _, record in ipairs(actions) do
-				print(record.action.type, record.timestamp)
+				print(record.action.type, record.timestamp, record.executionTime)
 			end
 			</code>
 		]]
-		function(self: FullState<S>): {Action} end
+		function(self: FullState<S>): {ActionRecord} end
 	),
 	GetMetrics: typeof(
 		--[[
@@ -409,7 +439,7 @@ export type FullState<S> = {
 			end)
 			</code>
 		]]
-		function(self: FullState<S>, transactionFn: (txStore: FullState<S>) -> any): (boolean, any?) end
+		function(self: FullState<S>, transactionFn: (txStore: TransactionStore<S>) -> any): (boolean, ...any) end
 	),
 	Reset: typeof(
 		--[[
@@ -450,6 +480,8 @@ export type FullState<S> = {
 	),
 }
 export type Static = {
+	Version: string,
+	Registry: {[string]: FullState<any>},
 	Create: typeof(
 		--[[
 			Creates a new named state manager or returns an existing one
@@ -542,6 +574,7 @@ export type Master = {
 	Listener: Listener,
 	ErrorCallback: ErrorCallback,
 	StateSnapshot: StateSnapshot,
+	TransactionStore: TransactionStore,
 	FullState: FullState,
 	Static: Static,
 }

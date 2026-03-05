@@ -1,284 +1,340 @@
 -- Annotations ---------------------------------------------------------------------------------------------
 export type Callback = (...any) -> ()
+export type FilterCallback = (...any) -> boolean
+export type ErrorCallback = (
+	eventName: string,
+	failingCallback: Callback,
+	errorMsg: string,
+	originalArgs: {any}
+) -> ()
 export type Connection = {
-	Callback:Callback,
-	Priority:number,
-	Once:boolean,
-	Filter:((any) -> boolean)?,
-	Connected:boolean,
-	EventName:string,
-	_bus:FullBus,
+	Callback: Callback,
+	Priority: number,
+	Once: boolean,
+	Filter: FilterCallback?,
+	Connected: boolean,
+	EventName: string,
+	_bus: FullBus,
 }
 export type SubscriptionGroup = {
-	Add:(self:SubscriptionGroup, handle:DisconnectHandle) -> DisconnectHandle,
-	Destroy:(self:SubscriptionGroup) -> (),
-	Count:(self:SubscriptionGroup) -> number,
+	Add: (self: SubscriptionGroup, handle: DisconnectHandle) -> DisconnectHandle,
+	Destroy: (self: SubscriptionGroup) -> (),
+	Count: (self: SubscriptionGroup) -> number,
 	_handles: {DisconnectHandle},
 }
 export type SubscribeOptions = {
-	Priority:number?,
-	Once:boolean?,
-	Filter:((any) -> boolean)?,
-	Async:boolean?,
-	Group:SubscriptionGroup?,
+	Priority: number?,
+	Once: boolean?,
+	Filter: FilterCallback?,
+	Async: boolean?,
+	Group: SubscriptionGroup?,
 }
 export type SubscriberInfo = {
 	Callback: Callback,
 	Priority: number,
 	Once: boolean,
-	Filter: ((any) -> boolean)?,
+	Filter: FilterCallback?,
 	HandlerType: "Debounce" | "Batch" | "Throttle" | nil,
 	WaitTime: number?,
 	LastCallTime: number?,
 }
 export type CreateOpts = {
-	EnableDebug:boolean?,
-	MaxListenersPerEvent:number?,
-	EnableWildcards:boolean?,
-	AsyncByDefault:boolean?,
-	StatsPrecision:number?,
-	TimelineSize:number?,
-	HistoryTreeOrder:number?,
-	EnableDeduplication:boolean?,
-	DeduplicationCacheSize:number?,
-	DeduplicationCmsEpsilon:number?,
-	DeduplicationCmsDelta:number?,
+	EnableDebug: boolean?,
+	MaxListenersPerEvent: number?,
+	EnableWildcards: boolean?,
+	AsyncByDefault: boolean?,
+	StatsPrecision: number?,
+	TimelineSize: number?,
+	HistoryTreeOrder: number?,
+	EnableDeduplication: boolean?,
+	DeduplicationCacheSize: number?,
+	DeduplicationCmsEpsilon: number?,
+	DeduplicationCmsDelta: number?,
 }
-export type Middleware = (eventName:string, ...any) -> (...any)
-export type BusStats = {
-	Destroyed:boolean?,
-	TotalEvents:number,
-	TotalSubscribers:number,
-	NormalSubscriptions:number,
-	PrefixSubscriptions:number,
-	TimeRangeSubscriptions:number,
-	WildcardSubscriptions:number,
-	StickyEvents:number,
-	EventCounts:{[string]:number},
-	SubscriberCounts:{[string]:number},
-	EventHistory:{[string]:number},
-	UniqueEventNamesEstimate:number,
-	TimelineEventCount:number,
-	TimelineWindowSize:number,
-	PendingAuditLogSize:number,
-	LastAuditRoot:string?,
+export type Middleware = (eventName: string, ...any) -> (...any)
+export type BusStatsLive = {
+	Destroyed: false,
+	TotalEvents: number,
+	TotalSubscribers: number,
+	NormalSubscriptions: number,
+	PrefixSubscriptions: number,
+	TimeRangeSubscriptions: number,
+	WildcardSubscriptions: number,
+	StickyEvents: number,
+	EventCounts: {[string]: number},
+	SubscriberCounts: {[string]: number},
+	EventHistory: {[string]: number},
+	UniqueEventNamesEstimate: number,
+	TimelineEventCount: number,
+	TimelineWindowSize: number,
+	PendingAuditLogSize: number,
+	LastAuditRoot: string?,
 }
+export type BusStatsDestroyed = {
+	Destroyed: true,
+}
+export type BusStats = BusStatsLive | BusStatsDestroyed
 export type DisconnectHandle = {
-	Disconnect:(self:DisconnectHandle) -> (),
+	Disconnect: (self: DisconnectHandle) -> (),
+}
+export type EventHistoryValue = {
+	Name: string,
+	Args: {any},
+}
+export type EventHistoryEntry = {
+	key: number, -- os.clock() timestamp
+	value: EventHistoryValue,
+}
+export type TransactionBus = {
+	Subscribe: (self: TransactionBus, eventName: string, callback: Callback, options: SubscribeOptions?) -> DisconnectHandle,
+	SubscribeOnce: (self: TransactionBus, eventName: string, callback: Callback, options: SubscribeOptions?) -> DisconnectHandle,
+	SubscribeByPrefix: (self: TransactionBus, prefix: string, callback: Callback, options: SubscribeOptions?) -> DisconnectHandle,
+	SubscribeTimeRange: (self: TransactionBus, eventName: string, low: number, high: number, callback: Callback, options: SubscribeOptions?) -> DisconnectHandle,
+	SubscribeDebounced: (self: TransactionBus, eventName: string, waitTime: number, callback: Callback, options: SubscribeOptions?) -> DisconnectHandle,
+	SubscribeBatched: (self: TransactionBus, eventName: string, waitTime: number, callback: Callback, options: SubscribeOptions?) -> DisconnectHandle,
+	SubscribeThrottled: (self: TransactionBus, eventName: string, waitTime: number, callback: Callback, options: SubscribeOptions?) -> DisconnectHandle,
+	SubscribeToAll: (self: TransactionBus, callback: Callback, options: SubscribeOptions?) -> DisconnectHandle,
+	Reply: (self: TransactionBus, eventName: string, callback: Callback, options: SubscribeOptions?) -> DisconnectHandle,
+	Publish: (self: TransactionBus, eventName: string, ...any) -> (),
+	PublishAsync: (self: TransactionBus, eventName: string, ...any) -> (),
+	PublishSticky: (self: TransactionBus, eventName: string, ...any) -> (),
+	PublishByPrefix: (self: TransactionBus, eventName: string, ...any) -> (),
+	Disconnect: (self: TransactionBus, connection: Connection) -> (),
+	Unsubscribe: (self: TransactionBus, eventName: string, callback: Callback) -> (),
+	Clear: (self: TransactionBus, eventName: string) -> (),
+	ClearAll: (self: TransactionBus) -> (),
+	AddMiddleware: (self: TransactionBus, middlewareFunc: Middleware) -> (),
+	RemoveMiddleware: (self: TransactionBus, middlewareFunc: Middleware) -> (),
+	SetEventRateLimit: (self: TransactionBus, eventName: string, refillRate: number, capacity: number) -> (),
+	RemoveSticky: (self: TransactionBus, eventName: string) -> (),
 }
 export type FullBus = {
 	-- Lifecycle
-	Destroy:typeof(
+	Destroy: typeof(
 		--[[
 			Completely removes and cleans up the event bus instance.
 			Stops all background processes and releases memory.
 			The bus cannot be used after being destroyed.
 		]]
-		function(self:FullBus) end
+		function(self: FullBus) end
+	),
+	CreateSubscriptionGroup: typeof(
+		--[[
+			Creates a group container for subscription handles.
+			Add handles to it (or pass Group=... in SubscribeOptions) then destroy the group
+			to disconnect everything in one call.
+
+			<code>local group = bus: CreateSubscriptionGroup()
+			group: Add(bus: Subscribe("A", cb))
+			group: Destroy()
+		]]
+		function(self: FullBus): SubscriptionGroup end
 	),
 	-- Subscriptions
-	Subscribe:typeof(
+	Subscribe: typeof(
 		--[[
 			Subscribes a callback function to a specific event name.
 			Supports <strong>glob patterns</strong> if EnableWildcards is true.
 			
-			<code>local handle = bus:Subscribe("Player.Joined", onPlayerJoined)
+			<code>local handle = bus: Subscribe("Player.Joined", onPlayerJoined)
 		]]
-		function(self:FullBus, eventName:string, callback:Callback, options:SubscribeOptions?):DisconnectHandle end
+		function(self: FullBus, eventName: string, callback: Callback, options: SubscribeOptions?): (DisconnectHandle? | false) end
 	),
-	SubscribeOnce:typeof(
+	SubscribeOnce: typeof(
 		--[[
 			Subscribes a callback function that will only run <strong>one time</strong>
 			and then automatically disconnect.
 			
-			<code>bus:SubscribeOnce("Game.Start", startGameLogic)
+			<code>bus: SubscribeOnce("Game.Start", startGameLogic)
 		]]
-		function(self:FullBus, eventName:string, callback:Callback, options:SubscribeOptions?):DisconnectHandle end
+		function(self: FullBus, eventName: string, callback: Callback, options: SubscribeOptions?): (DisconnectHandle? | false) end
 	),
-	SubscribeByPrefix:typeof(
+	SubscribeByPrefix: typeof(
 		--[[
 			Subscribes a callback to any event name that <strong>starts with</strong>
 			the given prefix string.
-			e.g., <code>bus:SubscribeByPrefix("Player.")</code> matches "Player.Joined", "Player.Left".
+			e.g., <code>bus: SubscribeByPrefix("Player.")</code> matches "Player.Joined", "Player.Left".
 			
-			<code>bus:SubscribeByPrefix("Entity.", handleEntityEvent)
+			<code>bus: SubscribeByPrefix("Entity.", handleEntityEvent)
 		]]
-		function(self:FullBus, prefix:string, callback:Callback, options:SubscribeOptions?):DisconnectHandle end
+		function(self: FullBus, prefix: string, callback: Callback, options: SubscribeOptions?): (DisconnectHandle? | false) end
 	),
-	SubscribeTimeRange:typeof(
+	SubscribeTimeRange: typeof(
 		--[[
 			Subscribes a callback to an event, but only fires if the
 			event is published within a specific time-of-day range.
 			Time is expressed in seconds since midnight (0 to 86399).
 			
-			<code>bus:SubscribeTimeRange("Tick", 3600, 7200, handleNightlyTick)
+			<code>bus: SubscribeTimeRange("Tick", 3600, 7200, handleNightlyTick)
 		]]
-		function(self:FullBus, eventName:string, low:number, high:number, callback:Callback, options:SubscribeOptions?):DisconnectHandle end
+		function(self: FullBus, eventName: string, low: number, high: number, callback: Callback, options: SubscribeOptions?): (DisconnectHandle? | false) end
 	),
-	SubscribeDebounced:typeof(
+	SubscribeDebounced: typeof(
 		--[[
 			Subscribes a callback that only fires after 'waitTime' seconds have
 			passed without another event being published. Uses arguments from the
 			last event in the quiet period.
 		]]
-		function(self:FullBus, eventName:string, waitTime:number, callback:Callback, options:SubscribeOptions?):DisconnectHandle end
+		function(self: FullBus, eventName: string, waitTime: number, callback: Callback, options: SubscribeOptions?): (DisconnectHandle? | false) end
 	),
-	SubscribeBatched:typeof(
+	SubscribeBatched: typeof(
 		--[[
 			Subscribes a callback that collects all events published over 'waitTime'
 			seconds and fires the callback with a table of all event argument sets.
 		]]
-		function(self:FullBus, eventName:string, waitTime:number, callback:Callback, options:SubscribeOptions?):DisconnectHandle end
+		function(self: FullBus, eventName: string, waitTime: number, callback: Callback, options: SubscribeOptions?): (DisconnectHandle? | false) end
 	),
-	SubscribeThrottled:typeof(
+	SubscribeThrottled: typeof(
 		--[[
 			Subscribes a callback that fires immediately on the first event,
 			but then ignores all subsequent events for 'waitTime' seconds.
 			(Unlike debounce, which waits for a quiet period).
 		]]
-		function(self:FullBus, eventName:string, waitTime:number, callback:Callback, options:SubscribeOptions?):DisconnectHandle end
+		function(self: FullBus, eventName: string, waitTime: number, callback: Callback, options: SubscribeOptions?): (DisconnectHandle? | false) end
 	),
-	SubscribeToAll:typeof(
+	SubscribeToAll: typeof(
 		--[[
 			Subscribes a callback to <strong>all</strong> events published on the bus.
 			This is a "catch-all" that fires for every event,
 			ideal for global logging or debugging.
 			
-			<code>bus:SubscribeToAll(function(eventName, ...)
-				print("Event fired:", eventName)
+			<code>bus: SubscribeToAll(function(eventName, ...)
+				print("Event fired: ", eventName)
 			end)
 		]]
-		function(self:FullBus, callback:Callback, options:SubscribeOptions?):DisconnectHandle end
+		function(self: FullBus, callback: Callback, options: SubscribeOptions?): (DisconnectHandle? | false) end
 	),
-	CreateChildBus:typeof(
+	CreateChildBus: typeof(
 		--[[
 			Creates a new, namespaced event bus.
 			Events published on the child bus are automatically
 			prefixed and published on the parent.
 			
-			<code>local playerBus = bus:CreateChildBus("Player.123")
+			<code>local playerBus = bus: CreateChildBus("Player.123")
 			-- This publishes "Player.123.Joined" on the parent bus
-			playerBus:Publish("Joined")
+			playerBus: Publish("Joined")
 		]]
-		function(self:FullBus, prefix:string):FullBus end
+		function(self: FullBus, prefix: string): (FullBus? | false) end
 	),
-	Request:typeof(
+	Request: typeof(
 		--[[
 			Publishes an event and yields until a 'Reply'
 			is received or a timeout occurs. Implements a
 			request/response pattern.
 			
-			<code>local ok, data = bus:Request("GetPlayerData", 5, 123) -- 5 sec timeout, player ID 123
+			<code>local ok, data = bus: Request("GetPlayerData", 5, 123) -- 5 sec timeout, player ID 123
 		]]
-		function(self:FullBus, eventName:string, timeout:number?, ...:any): (boolean, ...any) end
+		function(self: FullBus, eventName: string, timeout: number?, ...: any): (boolean, ...any) end
 	),
-	Reply:typeof(
+	Reply: typeof(
 		--[[
 			Subscribes to a 'Request' event and provides a response.
 			The callback's return values are sent back to the requester.
 			
-			<code>bus:Reply("GetPlayerData", function(playerId)
-				return DB:Get(playerId)
+			<code>bus: Reply("GetPlayerData", function(playerId)
+				return DB: Get(playerId)
 			end)
 		]]
-		function(self:FullBus, eventName:string, callback:Callback, options:SubscribeOptions?):DisconnectHandle end
+		function(self: FullBus, eventName: string, callback: Callback, options: SubscribeOptions?): (DisconnectHandle? | false) end
 	),
-	Disconnect:typeof(
+	Disconnect: typeof(
 		--[[
-			Manually disconnects a subscription handle.
-			
-			<code>bus:Disconnect(handle)
+			Manually disconnects a subscription using the INTERNAL connection object.
+			Most users should call <strong>handle: Disconnect()</strong> instead.
+
+			<code>local handle = bus: Subscribe("X", cb)
+			handle: Disconnect()</code>
 		]]
-		function(self:FullBus, connection:Connection) end
+		function(self: FullBus, connection: Connection) end
 	),
-	Unsubscribe:typeof(
+	Unsubscribe: typeof(
 		--[[
 			Quality-of-life function to disconnect subscriptions by event name and 
 			the exact callback function used for subscription. Disconnects all 
 			matching connections.
 		]]
-		function(self:FullBus, eventName:string, callback:Callback) end
+		function(self: FullBus, eventName: string, callback: Callback) end
 	),
-	WaitFor:typeof(
+	WaitFor: typeof(
 		--[[
 			Yields the current coroutine until the specified event fires
 			or an optional timeout is reached.
 			
-			<code>local ok, player = bus:WaitFor("Player.Joined", 5)
+			<code>local ok, player = bus: WaitFor("Player.Joined", 5)
 		]]
-		function(self:FullBus, eventName:string, timeout:number?): (boolean, ...any) end
+		function(self: FullBus, eventName: string, timeout: number?): (boolean, ...any) end
 	),
 	-- Publishing
-	Publish:typeof(
+	Publish: typeof(
 		--[[
 			Publishes an event to all matching subscribers.
 			Callbacks are executed based on 'AsyncByDefault' config.
 			May be dropped if a <strong>rate limit</strong> is exceeded.
 			
-			<code>bus:Publish("Player.Joined", player)
+			<code>bus: Publish("Player.Joined", player)
 		]]
-		function(self:FullBus, eventName:string, ...:any) end
+		function(self: FullBus, eventName: string, ...: any) end
 	),
-	PublishAsync:typeof(
+	PublishAsync: typeof(
 		--[[
 			Publishes an event to all matching subscribers <strong>in parallel</strong>.
 			This function will <strong>wait</strong> until all callbacks finish.
 			May be dropped if a rate limit is exceeded.
 			
-			<code>bus:PublishAsync("Data.Save", player)
+			<code>bus: PublishAsync("Data.Save", player)
 		]]
-		function(self:FullBus, eventName:string, ...:any) end
+		function(self: FullBus, eventName: string, ...: any) end
 	),
-	PublishSticky:typeof(
+	PublishSticky: typeof(
 		--[[
 			Publishes an event and caches the arguments. New subscribers to this
 			event will immediately receive the cached arguments (replayed).
 			
-			<code>bus:PublishSticky("Game.State", "RUNNING")
+			<code>bus: PublishSticky("Game.State", "RUNNING")
 		]]
-		function(self:FullBus, eventName:string, ...:any) end
+		function(self: FullBus, eventName: string, ...: any) end
 	),
-	RemoveSticky:typeof(
+	RemoveSticky: typeof(
 		--[[
 			Removes a cached sticky event published with PublishSticky.
 			New subscribers will no longer receive this event
 			on connection.
 			
-			<code>bus:RemoveSticky("Game.State")
+			<code>bus: RemoveSticky("Game.State")
 		]]
-		function(self:FullBus, eventName:string) end
+		function(self: FullBus, eventName: string) end
 	),
-	PublishByPrefix:typeof(
+	PublishByPrefix: typeof(
 		--[[
 			Publishes an event to all subscribers who are subscribed
 			to a prefix of the given event name.
-			e.g., <code>bus:PublishByPrefix("Player.Joined")</code> will fire subs for
+			e.g., <code>bus: PublishByPrefix("Player.Joined")</code> will fire subs for
 			"P", "Player", "Player.", and "Player.Joined".
 			
-			<code>bus:PublishByPrefix("System.Shutdown")
+			<code>bus: PublishByPrefix("System.Shutdown")
 		]]
-		function(self:FullBus, eventName:string, ...:any) end
+		function(self: FullBus, eventName: string, ...: any) end
 	),
 	-- Configuration & Middleware
-	AddMiddleware:typeof(
+	AddMiddleware: typeof(
 		--[[
 			Adds a middleware function that intercepts all published
 			events <strong>before</strong> they are sent to subscribers.
 			
-			<code>bus:AddMiddleware(loggerMiddleware)
+			<code>bus: AddMiddleware(loggerMiddleware)
 		]]
-		function(self:FullBus, middlewareFunc:Middleware) end
+		function(self: FullBus, middlewareFunc: Middleware): false? end
 	),
-	RemoveMiddleware:typeof(
+	RemoveMiddleware: typeof(
 		--[[
 			Removes a specific middleware function that was
 			previously added with AddMiddleware.
 			
-			<code>bus:RemoveMiddleware(loggerMiddleware)
+			<code>bus: RemoveMiddleware(loggerMiddleware)
 		]]
-		function(self:FullBus, middlewareFunc:Middleware) end
+		function(self: FullBus, middlewareFunc: Middleware): false? end
 	),
-	SetEventRateLimit:typeof(
+	SetEventRateLimit: typeof(
 		--[[
 			Applies a rate limit to a specific event name using a <strong>Token Bucket</strong>.
 			
@@ -286,98 +342,98 @@ export type FullBus = {
 			<strong>@param refillRate</strong> Tokens to add per second
 			<strong>@param capacity</strong> Maximum tokens the bucket can hold
 			
-			<code>bus:SetEventRateLimit("Chat.Message", 5, 10) -- 5 messages/sec, burst up to 10
+			<code>bus: SetEventRateLimit("Chat.Message", 5, 10) -- 5 messages/sec, burst up to 10
 		]]
-		function(self:FullBus, eventName:string, refillRate:number, capacity:number) end
+		function(self: FullBus, eventName: string, refillRate: number, capacity: number): false? end
 	),
-	SetDebug:typeof(
+	SetDebug: typeof(
 		--[[
 			Enables or disables <strong>verbose debug warnings</strong>.
 			
-			<code>bus:SetDebug(true)
+			<code>bus: SetDebug(true)
 		]]
-		function(self:FullBus, enabled:boolean) end
+		function(self: FullBus, enabled: boolean) end
 	),
 	-- Cleanup
-	Clear:typeof(
+	Clear: typeof(
 		--[[
 			Removes all subscribers for a <strong>specific</strong> event name.
 			
-			<code>bus:Clear("Player.Joined")
+			<code>bus: Clear("Player.Joined")
 		]]
-		function(self:FullBus, eventName:string) end
+		function(self: FullBus, eventName: string): false? end
 	),
-	ClearAll:typeof(
+	ClearAll: typeof(
 		--[[
 			Removes <strong>all</strong> subscribers from the event bus.
 			
-			<code>bus:ClearAll()
+			<code>bus: ClearAll()
 		]]
-		function(self:FullBus) end
+		function(self: FullBus): false? end
 	),
 	-- Introspection & New Algorithm Features
-	GetStats:typeof(
+	GetStats: typeof(
 		--[[
 			Returns a table of statistics about the event bus.
 			
-			<code>local stats = bus:GetStats()
+			<code>local stats = bus: GetStats()
 		]]
-		function(self:FullBus):BusStats end
+		function(self: FullBus): BusStats end
 	),
-	GetEventHistoryRange:typeof(
+	GetEventHistoryRange: typeof(
 		--[[
 			Returns a log of all events published within a given
 			<code>os.clock()</code> time range.
 			
-			<strong>@return</strong> <code>{{key:number, value:{Name:string, Args:{any}}}</code>
+			<strong>@return</strong> <code>{{key: number, value: {Name: string, Args: {any}}}</code>
 			
-			<code>local history = bus:GetEventHistoryRange(startTime, endTime)
+			<code>local history = bus: GetEventHistoryRange(startTime, endTime)
 		]]
-		function(self:FullBus, startTime:number, endTime:number):{any} end
+		function(self: FullBus, startTime: number, endTime: number): {EventHistoryEntry} end
 	),
-	GetEventProof:typeof(
+	GetEventProof: typeof(
 		--[[
 			Returns the Merkle Proof for an event at a given index
 			(based on its position in the log when the tree was built).
 			
-			<code>local proof = bus:GetEventProof(5)
+			<code>local proof = bus: GetEventProof(5)
 		]]
-		function(self:FullBus, index:number):{any}? end
+		function(self: FullBus, index: number): {any}? end
 	),
-	GetPendingAuditLog:typeof(
+	GetPendingAuditLog: typeof(
 		--[[
 			Returns a copy of the current event log, <strong>before</strong> it
 			has been built into an audit tree.
 			
-			<code>local pending = bus:GetPendingAuditLog()
+			<code>local pending = bus: GetPendingAuditLog()
 		]]
-		function(self:FullBus):{string} end
+		function(self: FullBus): {string} end
 	),
-	BuildAuditTree:typeof(
+	BuildAuditTree: typeof(
 		--[[
 			Consumes the pending event log, builds a Merkle Tree,
 			and returns the <strong>root hash</strong>. Clears the pending log.
 			
-			<code>local rootHash = bus:BuildAuditTree()
+			<code>local rootHash = bus: BuildAuditTree()
 		]]
-		function(self:FullBus):string? end
+		function(self: FullBus): (string? | false) end
 	),
-	GetAuditRoot:typeof(
+	GetAuditRoot: typeof(
 		--[[
 			Gets the <strong>root hash</strong> of the <strong>last</strong> built audit tree.
 			
-			<code>local lastRoot = bus:GetAuditRoot()
+			<code>local lastRoot = bus: GetAuditRoot()
 		]]
-		function(self:FullBus):string? end
+		function(self: FullBus): string? end
 	),
-	VerifyWithLastRoot:typeof(
+	VerifyWithLastRoot: typeof(
 		--[[
 			Verifies if a given leaf (event string) and proof
 			match the last built Merkle Tree root.
 			
-			<code>local isValid = bus:VerifyWithLastRoot(proof, leafData)
+			<code>local isValid = bus: VerifyWithLastRoot(proof, leafData)
 		]]
-		function(self:FullBus, proof:{any}, leafData:string):boolean end
+		function(self: FullBus, proof: {any}, leafData: string): boolean end
 	),
 	ReadOnly: typeof(
 		--[[
@@ -385,63 +441,63 @@ export type FullBus = {
 			all methods that modify the bus state (Publish, Subscribe,
 			Disconnect, Clear, etc.) will be disabled.
 
-			<code>bus:ReadOnly(true) -- Enable read-only
-			bus:ReadOnly(false) -- Disable read-only
+			<code>bus: ReadOnly(true) -- Enable read-only
+			bus: ReadOnly(false) -- Disable read-only
 		]]
-		function(self: FullBus, state:boolean) end
+		function(self: FullBus, state: boolean) end
 	),
 	-- Signals
 	OnPublish: typeof(
 		--[[
 			Connects a callback that runs whenever an event is successfully
 			published (after middleware, before subscribers are called).
-			Callback receives: (eventName:string, args:{any})
+			Callback receives: (eventName: string, args: {any})
 			
-			<code>bus:OnPublish(function(eventName, args)
-				print("Event Published:", eventName)
+			<code>bus: OnPublish(function(eventName, args)
+				print("Event Published: ", eventName)
 			end)
 		]]
-		function(self: FullBus, fn: (eventName:string, args:{any})->()): number end
+		function(self: FullBus, fn: (eventName: string, args: {any})->()): number? end
 	),
 	OnSubscribe: typeof(
 		--[[
 			Connects a callback that runs whenever a new subscription is successfully added.
-			Callback receives: (eventName:string, connection:Connection)
+			Callback receives: (eventName: string, connection: Connection)
 			
-			<code>bus:OnSubscribe(function(eventName, conn)
-				print("New subscriber for:", eventName)
+			<code>bus: OnSubscribe(function(eventName, conn)
+				print("New subscriber for: ", eventName)
 			end)
 		]]
-		function(self: FullBus, fn: (eventName:string, connection:Connection)->()): number end
+		function(self: FullBus, fn: (eventName: string, connection: Connection)->()): number? end
 	),
 	OnDisconnect: typeof(
 		--[[
 			Connects a callback that runs whenever a subscription is disconnected.
-			Callback receives: (eventName:string, connection:Connection)
+			Callback receives: (eventName: string, connection: Connection)
 			
-			<code>bus:OnDisconnect(function(eventName, conn)
-				print("Subscriber disconnected from:", eventName)
+			<code>bus: OnDisconnect(function(eventName, conn)
+				print("Subscriber disconnected from: ", eventName)
 			end)
 		]]
-		function(self: FullBus, fn: (eventName:string, connection:Connection)->()): number end
+		function(self: FullBus, fn: (eventName: string, connection: Connection)->()): number? end
 	),
 	OnError: typeof(
 		--[[
 			Connects a callback that runs whenever a subscriber callback throws an error.
-			Callback receives: (eventName:string, failingCallback:Callback, errorMsg:string, originalArgs:{any})
+			Callback receives: (eventName: string, failingCallback: Callback, errorMsg: string, originalArgs: {any})
 			
-			<code>bus:OnError(function(evName, cb, err, args)
+			<code>bus: OnError(function(evName, cb, err, args)
 				print("Error in", evName, err)
 			end)
 		]]
-		function(self: FullBus, fn: ErrorCallback): number end
+		function(self: FullBus, fn: ErrorCallback): number? end
 	),
 	DisconnectSignal: typeof(
         --[[
             Disconnects a signal connection using the ID returned by OnPublish, OnSubscribe, etc.
 
-            <code>local id = bus:OnError(...)
-            bus:DisconnectSignal(bus._errorSignal, id) -- Requires knowing the internal signal object
+            <code>local id = bus: OnError(...)
+            bus: DisconnectSignal(bus._errorSignal, id) -- Requires knowing the internal signal object
         ]]
 		-- OR provide specific methods like DisconnectOnError(id), DisconnectOnPublish(id) etc.
 		function(self: FullBus, signalInstance: any, connectionId: number) end
@@ -452,7 +508,7 @@ export type FullBus = {
 			Returns a list of all unique event names/patterns that
 			currently have active subscribers.
 
-			<code>local activeKeys = bus:Keys()
+			<code>local activeKeys = bus: Keys()
 		]]
 		function(self: FullBus): {string} end
 	),
@@ -462,9 +518,9 @@ export type FullBus = {
 			for a specific, exact event name (does not handle wildcards
 			or prefixes directly).
 
-			<code>local subs = bus:Subscribers("Player.Joined")
+			<code>local subs = bus: Subscribers("Player.Joined")
 			for _, subInfo in ipairs(subs) do
-				print(" - Priority:", subInfo.Priority)
+				print(" - Priority: ", subInfo.Priority)
 			end
 		]]
 		function(self: FullBus, eventName: string): {SubscriberInfo} end
@@ -476,8 +532,8 @@ export type FullBus = {
 			The function receives (eventName, connection).
 			Iteration order is not guaranteed.
 
-			<code>bus:ForEach(function(eventName, conn)
-				print("Active sub:", eventName)
+			<code>bus: ForEach(function(eventName, conn)
+				print("Active sub: ", eventName)
 			end)
 		]]
 		function(self: FullBus, fn: (eventName: string, connection: Connection) -> ()) end
@@ -490,23 +546,29 @@ export type FullBus = {
 			function are queued and applied atomically upon successful completion.
 			If the function errors, none of the operations are applied.
 
-			<code>local success, result = bus:Transaction(function(txBus)
-				local handle = txBus:Subscribe("EventA", callback)
-				txBus:Publish("EventB", 123)
-				-- txBus:Disconnect(someHandle) -- Disconnect operations can be tricky to journal
+			<code>local success, result = bus: Transaction(function(txBus)
+				local handle = txBus: Subscribe("EventA", callback)
+				txBus: Publish("EventB", 123)
+				-- txBus: Disconnect(someHandle) -- Disconnect operations can be tricky to journal
 				return "Completed"
 			end)
 		]]
-		function(self: FullBus, transactionFn: (txBus: FullBus) -> any): (boolean, any?) end
+		function(self: FullBus, transactionFn: (txBus: TransactionBus) -> ...any): (boolean, ...any) end
 	),
 }
 export type Static = {
-	Create:typeof(
+	Version: string,
+	Registry: {[string]: FullBus},
+	Create: typeof(
 		--[[
-			Creates a new event bus instance.
+			Creates a new event bus instance (or returns an existing named one).
+
+			Supports: 
+			<code>FullBus.Create("MyBus", opts)
+			FullBus.Create(opts) -- unnamed bus
 		]]
-		function(Name:string, Opts:CreateOpts?):FullBus<T> end
-	)
+		function(NameOrOpts: string | CreateOpts?, Opts: CreateOpts?): FullBus end
+	),
 }
 ------------------------------------------------------------------------------------------------------------
 export type Master = {

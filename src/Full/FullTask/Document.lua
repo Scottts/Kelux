@@ -1,6 +1,6 @@
 --[[
 	[ FULLTASK DOCUMENTATION ]
-	Version: 1.38.5 (STABLE)
+	Version: 1.38.7 (STABLE)
 
 	Author: Kel (@GudEveningBois)
 
@@ -178,7 +178,9 @@
 			ToJSON() / FromJSON(jsonString, functionMap)
 				Helper methods to stringify or decode snapshots directly to/from JSON.
 			Transaction(transactionFn)
-				Executes multiple submissions, cancellations, or dependency additions in an all-or-nothing block. If one fails, the entire transaction is rolled back.
+                Stages multiple submissions, cancellations, or dependency additions, then commits them in order.
+                If transactionFn errors, nothing is committed.
+                If a commit step fails, remaining staged actions are not applied (earlier ones may already have applied).
 					
 	5. Practical Examples
 

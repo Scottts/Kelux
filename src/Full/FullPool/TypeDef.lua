@@ -1,6 +1,7 @@
 -- Annotations ---------------------------------------------------------------------------------------------
 export type PoolConfig = {
 	name: string?,
+	instanceType: string?,
 	maxSize: number?,
 	initialSize: number?,
 	templateInstance: Instance?,
@@ -8,6 +9,7 @@ export type PoolConfig = {
 	validateCallback: ((Instance) -> boolean)?,
 	autoShrinkDelay: number?,
 	getsPerSecond: number?,
+	onReady: (() -> ())?,
 }
 export type PoolPriority = "low" | "normal" | "high" | "critical"
 export type PoolStats = {
@@ -19,6 +21,10 @@ export type PoolStats = {
 	pinnedCount: number,
 	totalCount: number,
 	maxSize: number,
+	-- Memory Metrics
+	memoryUsage: number,
+	memoryBudget: number,
+	memoryUsagePercent: number,
 	-- Lifetime Metrics
 	gets: number,
 	hits: number,
@@ -39,6 +45,10 @@ export type FullPool<T> = {
 	OnDestroy: any,
 	OnHit: any,
 	OnMiss: any,
+	OnLeaseExpired: any,
+	OnMemoryChanged: any,
+	OnEvict: any,
+	OnInstanceAvailable: any,
 	-- Core Lifecycle & Retrieval
 	Get: typeof(
 		--[[
@@ -283,6 +293,8 @@ export type FullPool<T> = {
 	),
 }
 export type Static = {
+	Version: string,
+	Registry: {[string]: FullPool<any>},
 	Create: typeof(
 		--[[
 			Creates a new named pool or retrieves an existing one.
@@ -379,6 +391,15 @@ export type Static = {
 			</code>
 		]]
 		function(pattern: string, targetSize: number?): number end
+	),
+	new: typeof(
+		--[[
+			Creates a new pool instance directly (bypasses the named Registry).
+			Used internally by Create(), but exposed publicly.
+
+			<strong>instanceType</strong> may be omitted ONLY if <strong>config.templateInstance</strong> is provided.
+		]]
+		function <T>(instanceType: string?, config: PoolConfig?): FullPool<T> end
 	)
 }
 ------------------------------------------------------------------------------------------------------------

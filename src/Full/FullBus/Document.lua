@@ -1,6 +1,6 @@
 --[[ 
     [ FULLBUS DOCUMENTATION ]
-    Version: 1.75.8 (STABLE)
+    Version: 1.75.11 (STABLE)
 
     Author: Kel (@GudEveningBois)
 
@@ -38,10 +38,16 @@
     2. Getting Started
         To begin using FullBus, create an event bus instance using 'FullBus.Create'.
 
-        FullBus.Create(Opts)
-                Creates a new event bus instance.
+        FullBus.Create(BusNameOrOpts?, Opts?)
+            Creates a new event bus instance (or retrieves an existing one if named).
+
         Parameters:
-                Opts (table?) [Optional] - Configuration options.
+                BusNameOrOpts (string | table?) [Optional]
+                        If a string, this is the bus name used for registry lookup.
+                        If a table and Opts is nil, this is treated as the Opts table (unnamed bus).
+                Opts (table?) [Optional]
+                        Configuration options (only used when BusNameOrOpts is a string).
+
         Options Table (Opts):
             * 'EnableDebug' (boolean): Verbose logging. Default: 'false'.
             * 'MaxListenersPerEvent' (number): Max subscribers per specific event name. Default: '100'.
@@ -55,13 +61,20 @@
             * 'DeduplicationCmsEpsilon' (number): Bloom Filter error rate epsilon. Default: '0.01'.
             * 'DeduplicationCmsDelta' (number): Bloom Filter error rate delta. Default: '0.001'.
 
-        Example: 
-            ---------------------------------------------------------------------------- 
+        Example:
+            ----------------------------------------------------------------------------
             local FullBus = require(script.Parent.FullBus) -- Adjust path
-            local bus = FullBus.Create({
+
+            -- Named bus (reused if the same name is created again)
+            local bus = FullBus.Create("MainBus", {
                 EnableDebug = true,
                 MaxListenersPerEvent = 200,
                 AsyncByDefault = false -- Prefer synchronous execution
+            })
+
+            -- Unnamed bus (passing Opts as the first argument)
+            local tempBus = FullBus.Create({
+                AsyncByDefault = true
             })
             ----------------------------------------------------------------------------
 
@@ -84,6 +97,23 @@
         
             FullBus.Create(Opts?) -> FullBus
                 Creates a new event bus instance. See Getting Started.
+            bus:CreateChildBus(prefix: string) -> FullBus?
+                Creates a new child bus that automatically prefixes all published events
+                with the provided prefix.
+
+                This is a convenience for namespacing.
+                Example: if prefix is "UI:", then publishing "Open" becomes "UI:Open".
+
+                Returns:
+                    FullBus instance on success.
+                    Returns false in read-only mode.
+                    Returns nil if destroyed or prefix is invalid/empty.
+                
+                Example:
+                ----------------------------------------------------------------------------
+                local uiBus = bus:CreateChildBus("UI:")
+                uiBus:Publish("Open") -- actually publishes "UI:Open"
+                ----------------------------------------------------------------------------
             bus:Destroy()
                 Cleans up the bus, disconnects subscribers, stops processes.
 
@@ -110,7 +140,17 @@
             bus:Unsubscribe(eventName: string, callback: Callback)
                 Finds and disconnects all subscriptions matching the exact event name and callback function reference.
             bus:CreateSubscriptionGroup() -> SubscriptionGroup
-                Creates a group object to manage multiple subscriptions. Add handles via 'options.Group'. Call 'group:Destroy()' to disconnect all handles in the group.
+                Creates a subscription group container.
+                You can add subscription handles to it and later destroy the group
+                to disconnect everything in one call.
+
+                Example:
+                    ----------------------------------------------------------------------------
+                    local group = bus:CreateSubscriptionGroup()
+                    group:Add(bus:Subscribe("A", function() end))
+                    group:Add(bus:Subscribe("B", function() end))
+                    group:Destroy() -- disconnects all added subscriptions
+                    ----------------------------------------------------------------------------
 
         Publishing Operations:
         
@@ -137,9 +177,14 @@
         Configuration & Middleware:
         
             bus:AddMiddleware(middlewareFunc: Middleware)
-                Adds a middleware function '(eventName, ...args) -> ...newArgs'. Middleware functions chain their return values. 
-                Returning nothing ('nil') effectively stops the chain for that event (subscribers won't be called). 
-                Does not support returning 'false' to cancel.
+                Adds a middleware function '(eventName, ...args) -> ...newArgs'.
+
+                Middleware is executed in order before subscribers.
+                If a middleware returns 1+ values, those values replace the current args for the next middleware/subscribers.
+                If a middleware returns nothing, the args are left unchanged.
+
+                Middleware does not provide a “cancel publish” return value.
+                To conditionally block subscriber execution, use subscription filters (SubscribeOptions.Filter).
             bus:RemoveMiddleware(middlewareFunc: Middleware)
                 Removes a specific middleware function reference.
             bus:SetEventRateLimit(eventName: string, refillRate: number, capacity: number)
@@ -160,24 +205,42 @@
         
             bus:GetStats() -> BusStats
                 Returns a table of various statistics.
-            bus:GetEventHistoryRange(startTime: number, endTime: number) -> {{key: number, value: {Name: string, Args: {any}}}}
-                Retrieves historical event logs between 'os.clock()' timestamps. Args are deserialized.
-            bus:GetPendingAuditLog() -> {string}
-                Returns the list of serialized event hashes waiting to be built into a Merkle Tree.
-            bus:BuildAuditTree() -> string?
-                Builds a Merkle Tree from the pending log, clears the log, stores the tree, and returns the root hash.
-            bus:GetAuditRoot() -> string?
-                Gets the root hash of the last built Merkle Tree.
-            bus:GetEventProof(index: number) -> {any}?
-                Gets the Merkle proof for an event at a specific index *from the last built tree*.
-            bus:VerifyWithLastRoot(proof: {any}, leafData: string) -> boolean
-                Verifies if a proof and leaf hash match the last tree root.
+                
+                Note:
+                    If the bus is destroyed, GetStats() returns a minimal table:
+                    { Destroyed = true }.
+
             bus:Keys() -> {string}
                 Returns a list of all event names/patterns with active subscribers.
+
             bus:Subscribers(eventName: string) -> {SubscriberInfo}
                 Returns detailed info about subscribers for an *exact* event name.
+
             bus:ForEach(fn: (eventName: string, connection: Connection) -> ())
                 Calls 'fn' for each active, non-specialized subscription.
+
+            bus:GetPendingAuditLog() -> {string}
+                Returns the current pending audit entries that have not yet been merged
+                into a committed audit root. Returns an empty array if none.
+
+            bus:GetAuditRoot() -> string?
+                Returns the latest committed audit root hash/string, or nil if none.
+
+            bus:BuildAuditTree() -> string?
+                Builds and returns a printable audit tree string.
+                Returns false in read-only mode.
+                Returns nil if destroyed or no audit data exists.
+
+            bus:GetEventHistoryRange(startTime: number, endTime: number) -> {any}
+                Returns a time-range slice of recorded events from the history B+Tree.
+                Each entry contains { key = timestamp, value = { Name = string, Args = {any} } }.
+                Returns an empty array if none exist in the range.
+
+            bus:GetEventProof(time: number) -> {any}?
+                Returns a Merkle proof for the event at/near the given timestamp, if available.
+
+            bus:VerifyWithLastRoot(time: number) -> boolean
+                Verifies the Merkle proof for a given timestamp against the most recent audit root.
 
         Signals (for monitoring the bus itself):
 
@@ -189,14 +252,28 @@
                 Connects a callback fired after a disconnection. Returns connection ID.
             bus:OnError(fn: (eventName: string, failingCallback: Callback, errorMsg: string, originalArgs: {any}) -> ()) -> number
                 Connects a callback fired when a subscriber errors. Returns connection ID.
-            bus:DisconnectSignal(signalInstance: any, connectionId: number)
-                Disconnects a signal connection using its ID and the internal signal object (e.g., 'bus._publishSignal').
+            bus:DisconnectSignal(signalInstance: any, connectionId: number) -> ()
+                Disconnects a connection ID returned by a KelSignal-like signal's Connect().
+                This is primarily an internal helper for bus-owned signals.
+               
+                Example:
+                    ----------------------------------------------------------------------------
+                    local id = bus:OnPublish(function() end)
+                    bus:DisconnectSignal(bus._publishSignal, id) -- internal-style usage
+                    ----------------------------------------------------------------------------
+                    
 
         Transactions:
 
             bus:Transaction(transactionFn: (txBus: FullBus) -> any) -> (boolean, ...any)
-                Executes 'transactionFn' atomically. Operations called on 'txBus' inside the function are queued
-                and applied only if the function succeeds without errors. Returns '(true, ...results)' or '(false, error)'.
+                Executes 'transactionFn' with a transactional proxy bus ('txBus').
+
+                Operations called on 'txBus' are staged and only applied after 'transactionFn' succeeds.
+                If 'transactionFn' errors, staged operations are discarded and the transaction returns (false, error).
+
+                Note:
+                    Staged operations are applied sequentially during commit.
+                    If commit fails mid-way, the bus may be partially updated (the method returns false and logs a warning).
 
     5. Practical Examples
         

@@ -4,6 +4,8 @@ export type LRUState = {head: string?, tail: string?, nodes: {[string]: any}}
 export type LFUState = {minFreq: number, freqMap: {[number]: {string}}}
 export type RRState = {queue: {string}}
 export type PolicyState = FIFOState | LRUState | LFUState | RRState
+export type CacheKey = string | table | userdata
+export type NormalizedKey = string | userdata
 export type CacheEntry<T> = {
 	value: T,
 	expires: number?,
@@ -11,7 +13,7 @@ export type CacheEntry<T> = {
 }
 export type EvictionInfo<T> = {
 	kind: "array" | "dict",
-	key: string?,
+	key: NormalizedKey?,
 	value: T,
 	expired: boolean,
 }
@@ -22,7 +24,7 @@ export type MemoryChangeInfo = {
 }
 export type WatchEvent<T> = {
 	event: "SET" | "REMOVE" | "EVICT" | "EXPIRE",
-	key: string | {any},
+	key: NormalizedKey,
 	value: T?,
 	timestamp: number,
 }
@@ -124,7 +126,7 @@ export type FullCache<T> = {
 				return (currentScore or 0) + 1
 			end)
 		]]
-		function(self: FullCache<T>, key: string|{any}, updaterFn: (currentValue: T) -> T): T? end
+		function(self: FullCache<T>, key: CacheKey, updaterFn: (currentValue: T?) -> T?): T? end
 	),
 	Pin: typeof(
 		--[[
@@ -481,17 +483,6 @@ export type FullCache<T> = {
 		]]
 		function(self: FullCache<T>): number end
 	),
-	-- Static Methods
-	Create: typeof(
-		--[[
-			Creates a new named cache or returns an existing one if already created. 
-			Supports optional max
-			object count, TTL interval in seconds, and cache options (weak/strong mode and eviction policy). 
-			
-			<code>local cache = FullCache.Create("MyCache", 100, 5, {Mode = "strong", Policy = "LRU"})
-		]]
-		function(CacheName:string, MaxObjects:number?, Opts:CreateOpts?):FullCache<T> end
-	),
 	-- Memory introspection
 	GetMemoryUsage: typeof(
 		--[[
@@ -744,7 +735,14 @@ export type Static = {
 			<code>local cache = FullCache.Create("MyCache", 100, 5, {Mode = "strong", Policy = "LRU"})
 		]]
 		function <T>(CacheName:string, MaxObjects:number?, Opts:CreateOpts?):FullCache<T> end
-	)
+	),
+	new: typeof(
+		--[[
+			alias of Create (FullCache.new = FullCache.Create)
+			<strong>This is for compatibility, use Create instead.</strong>
+		]]
+		function <T>(CacheName:string, MaxObjects:number?, Opts:CreateOpts?): FullCache<T> end
+	),
 }
 ------------------------------------------------------------------------------------------------------------
 export type Master = {
@@ -761,6 +759,8 @@ export type Master = {
 	CreateOpts: CreateOpts,
 	FullCache: FullCache,
 	Static: Static,
+	CacheKey: CacheKey,
+	NormalizedKey: NormalizedKey,
 }
 local TypeDef = {}
 return TypeDef :: Master

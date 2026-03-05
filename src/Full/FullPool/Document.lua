@@ -1,6 +1,6 @@
 --[[ 
     [ FULLPOOL DOCUMENTATION ]
-    Version: 1.72.5 (STABLE)
+    Version: 1.72.9 (STABLE)
 
     Author: Kel (@GudEveningBois)
 
@@ -330,7 +330,8 @@
 	                Returns a comprehensive snapshot of the pool's current statistics.
 	                The 'PoolStats' table includes: name, instanceType, pooledCount, 
 	                activeCount, pinnedCount, totalCount, maxSize, gets, hits, misses, 
-	                hitRate, creations, returns, evictions, leaseExpirations.
+	               	hitRate, creations, returns, evictions, leaseExpirations,
+	                memoryUsage, memoryBudget, memoryUsagePercent.
 	                
 	                Example:
 	                ----------------------------------------------------------------------------
