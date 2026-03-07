@@ -15,7 +15,6 @@
 	limitations under the License. 
 ]]
 local FullFolder = script:WaitForChild("Full")
-local LiteFolder = script:WaitForChild("Lite")
 local Components = script:WaitForChild("Components") 
 
 local FullBus = require(FullFolder:WaitForChild("FullBus"))
