@@ -1,0 +1,15 @@
+# Kelux
+> Copyright 2026 Kel (@GudEveningBois).
+
+This product includes the Kelux runtime framework for Roblox,
+developed by Kel.
+
+This distribution includes third-party derived code and ports of
+algorithm implementations originally authored by **Yann Collet**,
+including **xxHash**, **LZ4**, and **Zstandard** (zstd).
+
+Kelux is licensed under the Apache License, Version 2.0.
+See the LICENSE file for details.
+
+Additional third-party license texts and attribution notices are
+provided in the `third_party/` directory.
