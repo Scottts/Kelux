@@ -1,7 +1,7 @@
 
 # Kelux
-### This project is dual‑licensed under the MIT License and the Apache 2.0 License. 
-*See the "LICENSE" script for details and choose whichever license best fits your needs.*
+### This project is licensed under Apache 2.0. 
+*See the "LICENSE" script for details.*
 
 ---
 
@@ -18,7 +18,7 @@ which are categorized into two distinct tiers:
 - **Full Tools:** 
 Advanced modules requiring expertise 
 in backend/frontend architecture.
-- Includes features like:
+  Includes features like:
 	* Reactive State and Signal Systems
 	* Persistent or Snapshotable Modules
 	* Dynamic Lifecycle Handling
