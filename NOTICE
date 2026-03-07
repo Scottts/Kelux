@@ -10,6 +10,3 @@ including xxHash, LZ4, and Zstandard (zstd).
 
 Kelux is licensed under the Apache License, Version 2.0.
 See the LICENSE file for details.
-
-Additional third-party license texts and attribution notices are
-provided in the third_party/ directory.
