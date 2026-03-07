@@ -1,7 +1,7 @@
 
 # Kelux
 ### This project is licensed under Apache 2.0. 
-*See the "LICENSE" script for details.*
+*See the "LICENSE" file for details.*
 
 ---
 
