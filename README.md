@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/source-open-success" alt="Open Source">
   <img src="https://img.shields.io/badge/tier-Full%20%2B%20Lite-5865f2" alt="Tiers">
   <img src="https://img.shields.io/badge/platform-Roblox-blue" alt="Platform">
-  <img src="https://img.shields.io/badge/license-MIT-success" alt="License">
+  <img src="https://img.shields.io/badge/license-Apache%202.0-success" alt="License">
 </p>
 
 <p align="center">
