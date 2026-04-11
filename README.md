@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="https://PLACEHOLDER-DOCS-LINK"><strong>Documentation</strong></a> ·
+  <a href="https://github.com/Scottts/Kelux/wiki"><strong>Documentation</strong></a> ·
   <a href="https://github.com/Scottts/Kelux/releases"><strong>Releases</strong></a> ·
   <a href="https://github.com/Scottts/Kelux/issues"><strong>Issues</strong></a> ·
   <a href="https://github.com/Scottts/Kelux/security/advisories/new"><strong>Security</strong></a>
